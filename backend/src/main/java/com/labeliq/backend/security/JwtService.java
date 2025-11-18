@@ -1,4 +1,4 @@
-package Security;
+package com.labeliq.backend.security;
 
 import com.labeliq.backend.model.User;
 import io.jsonwebtoken.Claims;

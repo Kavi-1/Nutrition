@@ -1,4 +1,4 @@
-package Security;
+package com.labeliq.backend.security;
 
 import com.labeliq.backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
