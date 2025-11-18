@@ -9,13 +9,13 @@ import org.springframework.web.client.RestTemplate;
 
 @RestController
 @RequestMapping("/api/nutrition")
-public class connectionAPI {
+public class ConnectionNurtitionAPI {
     @Value("${nutrition.api.key}")
     private String apiKey;
     @Value("${nutrition.api.url}")
     private String apiUrl;
     private final RestTemplate restTemplate;
-    public connectionAPI(RestTemplate restTemplate) {
+    public ConnectionNurtitionAPI(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
     @GetMapping("/food")
@@ -25,5 +25,3 @@ public class connectionAPI {
         return ResponseEntity.ok(result);
     }
 }
-
-
