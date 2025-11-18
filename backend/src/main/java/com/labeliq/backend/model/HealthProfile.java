@@ -1,5 +1,6 @@
 package com.labeliq.backend.model;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -25,4 +26,8 @@ public class HealthProfile {
     @CollectionTable(name = "user_allergies", joinColumns = @JoinColumn(name = "health_profile_id"))
     private List<String> allergies = new ArrayList<>();
     private String dietaryPreference;
+    @JsonIgnore
+    @OneToOne
+    @JoinColumn(name = "user_id", referencedColumnName = "id")
+    private User user;
 }
