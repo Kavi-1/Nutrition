@@ -1,0 +1,19 @@
+# IntelliJ
+.idea/
+*.iml
+
+# macOS
+.DS_Store
+
+# Gradle / Java
+/build/
+/out/
+/target/
+/.gradle/
+
+# Node / React
+node_modules/
+dist/
+
+# Environment
+.env
