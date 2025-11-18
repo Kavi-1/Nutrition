@@ -1,5 +1,6 @@
-package com.labeliq.backend;
+package com.labeliq.backend.service;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.spoonacular.MiscApi;
@@ -9,15 +10,14 @@ import com.spoonacular.client.Configuration;
 import com.spoonacular.client.auth.ApiKeyAuth;
 
 @Service
-public class ImageClassifierController {
-
+public class ImageClassifierService {
     private final MiscApi api;
-
-    public ImageClassifierController() {
+    
+    public ImageClassifierService(@Value("${spoonacular.api.key}") String apiKey) {
         ApiClient client = Configuration.getDefaultApiClient();
         client.setBasePath("https://api.spoonacular.com");
         ApiKeyAuth apiKeyAuth = (ApiKeyAuth) client.getAuthentication("apiKeyScheme");
-        apiKeyAuth.setApiKey("bb993e03da1841c8a66c25b00c39699a");
+        apiKeyAuth.setApiKey(apiKey);
         apiKeyAuth.setApiKeyPrefix("Token");
         this.api = new MiscApi(client);
     }

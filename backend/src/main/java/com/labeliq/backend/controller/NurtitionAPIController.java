@@ -1,4 +1,4 @@
-package com.labeliq.backend;
+package com.labeliq.backend.controller;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -9,13 +9,13 @@ import org.springframework.web.client.RestTemplate;
 
 @RestController
 @RequestMapping("/api/nutrition")
-public class ConnectionNurtitionAPI {
+public class NurtitionAPIController {
     @Value("${nutrition.api.key}")
     private String apiKey;
     @Value("${nutrition.api.url}")
     private String apiUrl;
     private final RestTemplate restTemplate;
-    public ConnectionNurtitionAPI(RestTemplate restTemplate) {
+    public NurtitionAPIController(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
     @GetMapping("/food")
