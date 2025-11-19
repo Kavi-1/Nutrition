@@ -42,6 +42,10 @@ dependencies {
 	implementation 'io.jsonwebtoken:jjwt-api:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-impl:0.11.5'
 	runtimeOnly 'io.jsonwebtoken:jjwt-jackson:0.11.5'
+	implementation 'com.squareup.okio:okio:3.9.0'
+	implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+	implementation 'com.google.code.gson:gson:2.11.0'
+	implementation 'io.gsonfire:gson-fire:1.9.0'
 }
 
 tasks.named('test') {
