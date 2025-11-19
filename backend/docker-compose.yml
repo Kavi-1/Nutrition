@@ -1,0 +1,16 @@
+version: '3.8'
+services:
+  postgres:
+    image: postgres:14
+    container_name: labeliq_db
+    environment:
+      POSTGRES_DB: labeliq_db
+      POSTGRES_USER: labeliq_admin
+      POSTGRES_PASSWORD: labeliq@2025
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:
