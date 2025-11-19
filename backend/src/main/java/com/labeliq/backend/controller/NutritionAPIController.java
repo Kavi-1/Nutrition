@@ -9,13 +9,13 @@ import org.springframework.web.client.RestTemplate;
 
 @RestController
 @RequestMapping("/api/nutrition")
-public class NurtitionAPIController {
+public class NutritionAPIController {
     @Value("${nutrition.api.key}")
     private String apiKey;
     @Value("${nutrition.api.url}")
     private String apiUrl;
     private final RestTemplate restTemplate;
-    public NurtitionAPIController(RestTemplate restTemplate) {
+    public NutritionAPIController(RestTemplate restTemplate) {
         this.restTemplate = restTemplate;
     }
     @GetMapping("/food")
