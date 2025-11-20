@@ -3,63 +3,79 @@
 // Local SQLite helper module (native only)
 // ============================================
 //
-// This file provides a simple wrapper around Expo's
-// `expo-sqlite` API to store food log entries locally
-// on iOS and Android devices.
+// Stores:
+//   1. Food log entries (FoodLogEntries table)
+//   2. Single user profile (UserProfile table)
 //
 // IMPORTANT:
-// This must **NOT** run on the Web. Web workers cannot
+// This must **NOT** run on Web. Web workers cannot
 // load SQLite WASM in your Expo version. Our project
-// uses native-only database access, so this file will be
-// imported ONLY in native navigation paths.
+// uses native-only database access.
 //
 // The database automatically initializes on import.
 //
 
 import * as SQLite from "expo-sqlite";
 
+// ====================================================
+// Types
+// ====================================================
+
 /**
  * FoodLogEntry
  *
- * Represents a single row inside the SQLite table.
- * Most fields are optional because USDA search data varies.
- *
- * NOTE:
- *   calories / protein / fat / carbs are stored as
- *   **per-serving** values from USDA, NOT multiplied
- *   by `amount`. Total nutrients for a log are computed
- *   in the UI as: perServing * amount.
+ * Represents a single row inside the food log table.
+ * Per-serving nutrition values come from USDA.
+ * `amount` = number of servings the user ate.
  */
 export type FoodLogEntry = {
-  id?: number;                     // Auto-increment primary key
-  fdcId?: number | string;         // USDA Food Data Central ID
-  description: string;             // Food name
-  brandName?: string;              // Optional brand field
-  category?: string;               // USDA category
-  servingSize?: number;            // Reference serving size (optional)
-  servingUnit?: string;            // Unit for serving size
-  amount: string;                  // Servings eaten (e.g. "1", "2.5")
-  notes?: string;                  // Optional free text
-  calories?: number;               // per-serving calories (USDA value)
-  protein?: number;                // per-serving protein grams
-  fat?: number;                    // per-serving fat grams
-  carbs?: number;                  // per-serving carbs grams
-  createdAt?: string;              // ISO timestamp of log creation
+  id?: number;
+  fdcId?: number | string;
+  description: string;
+  brandName?: string;
+  category?: string;
+  servingSize?: number;
+  servingUnit?: string;
+
+  amount: string; // as text; user-entered servings (e.g. "1", "2.5")
+  notes?: string;
+
+  // Per-serving nutrition values
+  calories?: number;
+  protein?: number;
+  fat?: number;
+  carbs?: number;
+
+  createdAt?: string;
 };
 
 /**
- * ================================================
- * Open SQLite Database
- * ================================================
+ * UserProfile
+ *
+ * Simple profile stored locally. Only one row exists (id = 1).
  */
+export type UserProfile = {
+  id?: number; // always 1
+  age?: number;
+  height?: string;
+  weight?: string;
+  gender?: string;
+  allergies?: string; // comma-separated
+  dietaryPreferences?: string;
+};
+
+// ====================================================
+// Open SQLite Database
+// ====================================================
+
 const db = SQLite.openDatabaseSync("labeliq.db");
 
-/**
- * ================================================
- * Initialize database schema
- * ================================================
- */
+// ====================================================
+// Initialize Tables
+// ====================================================
+
 export function initLogDb() {
+  // Food Log table
   db.execSync(`
     CREATE TABLE IF NOT EXISTS FoodLogEntries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -78,28 +94,40 @@ export function initLogDb() {
       createdAt TEXT NOT NULL
     );
   `);
+
+  // User Profile (single row: id=1)
+  db.execSync(`
+    CREATE TABLE IF NOT EXISTS UserProfile (
+      id INTEGER PRIMARY KEY,
+      age INTEGER,
+      height TEXT,
+      weight TEXT,
+      gender TEXT,
+      allergies TEXT,
+      dietaryPreferences TEXT
+    );
+  `);
 }
 
-// Run initialization immediately when this module loads
-initLogDb();
+initLogDb(); // run on import
+
+// ====================================================
+// CRUD: Food Log
+// ====================================================
 
 /**
- * ================================================
- * Insert a new food log entry
- * ================================================
+ * Insert a new food log entry.
  *
- * Stores per-serving nutrition values from USDA.
- * `amount` is **not** applied here; totals are computed
- * later in the UI using amount × per-serving.
+ * @returns number new row ID
  */
 export function insertFoodLog(entry: FoodLogEntry): number {
   const stmt = db.prepareSync(`
     INSERT INTO FoodLogEntries
-    (fdcId, description, brandName, category,
-     servingSize, servingUnit,
-     amount, notes,
-     calories, protein, fat, carbs,
-     createdAt)
+      (fdcId, description, brandName, category,
+       servingSize, servingUnit,
+       amount, notes,
+       calories, protein, fat, carbs,
+       createdAt)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
@@ -124,28 +152,15 @@ export function insertFoodLog(entry: FoodLogEntry): number {
   return result.lastInsertRowId!;
 }
 
-/**
- * ================================================
- * Delete a food log entry by ID
- * ================================================
- */
+/** Delete by ID */
 export function deleteLogById(id: number): void {
   const stmt = db.prepareSync(`
-    DELETE FROM FoodLogEntries
-    WHERE id = ?
+    DELETE FROM FoodLogEntries WHERE id = ?
   `);
-
   stmt.executeSync([id]);
 }
 
-/**
- * ================================================
- * Query logs for a specific date (YYYY-MM-DD)
- * ================================================
- *
- * createdAt is ISO timestamp. We compare only the date
- * prefix (first 10 characters).
- */
+/** Get a specific date's logs, YYYY-MM-DD */
 export function getLogsForDate(date: string): FoodLogEntry[] {
   return db.getAllSync<FoodLogEntry>(
     `
@@ -158,30 +173,20 @@ export function getLogsForDate(date: string): FoodLogEntry[] {
   );
 }
 
-/**
- * ================================================
- * Convenience helper: get today's logs
- * ================================================
- */
+/** Get today's logs */
 export function getTodayLogs(): FoodLogEntry[] {
   const today = new Date().toISOString().slice(0, 10);
   return getLogsForDate(today);
 }
 
-/**
- * ================================================
- * Fetch a single log entry by ID
- * ================================================
- *
- * Used by the Edit screen to load the record that
- * the user wants to modify.
- */
+/** Fetch single log entry by ID */
 export function getLogById(id: number): FoodLogEntry | null {
   const row = db.getFirstSync<FoodLogEntry>(
     `
     SELECT *
     FROM FoodLogEntries
     WHERE id = ?
+    LIMIT 1
     `,
     [id]
   );
@@ -190,18 +195,29 @@ export function getLogById(id: number): FoodLogEntry | null {
 }
 
 /**
- * ================================================
- * Update a log entry's amount + notes
- * ================================================
+ * Update amount + notes + derived totals.
  *
- * We DO NOT touch calories / macros here anymore.
- * They always remain per-serving USDA values.
+ * Since all nutrition values are **per serving**, and
+ * amount = number of servings eaten,
+ * we scale totals simply by multiplying.
  */
-export function updateLogAmountAndNotes(
+export function updateFoodLogAmountAndNotes(
   id: number,
   newAmount: string,
   newNotes?: string
 ): void {
+  const existing = getLogById(id);
+  if (!existing) throw new Error(`Food log with id=${id} not found`);
+
+  const amountNum = Number(newAmount);
+  if (!Number.isFinite(amountNum) || amountNum <= 0) {
+    throw new Error("newAmount must be a positive number");
+  }
+
+  // Per-serving values remain unchanged.
+  // We store per-serving nutrition in the DB,
+  // and compute totals in the UI.
+
   const stmt = db.prepareSync(`
     UPDATE FoodLogEntries
     SET amount = ?, notes = ?
@@ -211,12 +227,74 @@ export function updateLogAmountAndNotes(
   stmt.executeSync([newAmount, newNotes ?? null, id]);
 }
 
-/**
- * ================================================
- * Dev helper: reset / drop the table
- * ================================================
- */
+/** Reset log table — used in Profile debug button */
 export function resetLogDb(): void {
-  db.execSync(`DROP TABLE IF EXISTS FoodLogEntries;`);
-  initLogDb();
+  db.execSync(`DELETE FROM FoodLogEntries;`);
+}
+
+// ====================================================
+// CRUD: User Profile
+// ====================================================
+
+/** Get the single profile row (id = 1) */
+export function getUserProfile(): UserProfile | null {
+  const row = db.getFirstSync<UserProfile>(
+    `
+    SELECT *
+    FROM UserProfile
+    WHERE id = 1
+    `
+  );
+  return row ?? null;
+}
+
+/**
+ * Insert/update the only user profile row.
+ * If exists → UPDATE
+ * If missing → INSERT id=1
+ */
+export function upsertUserProfile(profile: UserProfile): void {
+  const existing = getUserProfile();
+
+  const fields = {
+    age: profile.age ?? null,
+    height: profile.height ?? null,
+    weight: profile.weight ?? null,
+    gender: profile.gender ?? null,
+    allergies: profile.allergies ?? null,
+    dietaryPreferences: profile.dietaryPreferences ?? null,
+  };
+
+  if (existing) {
+    const stmt = db.prepareSync(`
+      UPDATE UserProfile
+      SET age = ?, height = ?, weight = ?, gender = ?,
+          allergies = ?, dietaryPreferences = ?
+      WHERE id = 1
+    `);
+
+    stmt.executeSync([
+      fields.age,
+      fields.height,
+      fields.weight,
+      fields.gender,
+      fields.allergies,
+      fields.dietaryPreferences,
+    ]);
+  } else {
+    const stmt = db.prepareSync(`
+      INSERT INTO UserProfile
+      (id, age, height, weight, gender, allergies, dietaryPreferences)
+      VALUES (1, ?, ?, ?, ?, ?, ?)
+    `);
+
+    stmt.executeSync([
+      fields.age,
+      fields.height,
+      fields.weight,
+      fields.gender,
+      fields.allergies,
+      fields.dietaryPreferences,
+    ]);
+  }
 }

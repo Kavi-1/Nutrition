@@ -2,9 +2,12 @@
 // ====================================================
 // "Today's Log" Screen (Home tab)
 //
-// Displays all food entries recorded *today*, pulled from
-// local SQLite storage. Also computes a Daily Summary
-// (total calories + macro totals).
+// Displays food entries recorded on a given date,
+// pulled from local SQLite storage. Also computes a
+// Daily Summary (total calories + macro totals).
+//
+// Default date is "today", but the user can move
+// backward / forward by one day using the ⟨ ⟩ buttons.
 //
 // This screen refreshes automatically whenever the tab is
 // focused — ensuring newly added foods (from /food/add)
@@ -12,12 +15,7 @@
 //
 // Additional features:
 //   • Tap an entry → open Log Details / Edit screen
-//   • Long-press an entry → delete it from today’s log
-//
-// Semantics:
-//   - `amount` is the **number of servings** eaten
-//   - `servingSize` + `servingUnit` describe 1 serving
-//     (e.g., 1 serving = 236 ml)
+//   • Long-press an entry → delete it from the log
 // ====================================================
 
 import React, { useState, useCallback } from "react";
@@ -34,13 +32,27 @@ import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 
 import {
-  getTodayLogs,
+  getLogsForDate,
   deleteLogById,
   type FoodLogEntry,
 } from "../../db/logDb";
 
 // Helper: format number with 1 decimal place
 const format1 = (v: number) => v.toFixed(1);
+
+// Helper: format "YYYY-MM-DD" into a nicer label
+function formatDateLabel(dateStr: string, todayStr: string): string {
+  if (dateStr === todayStr) return "Today";
+  // Very simple formatting: keep YYYY-MM-DD
+  return dateStr;
+}
+
+// Helper: shift "YYYY-MM-DD" by deltaDays
+function shiftDate(dateStr: string, deltaDays: number): string {
+  const d = new Date(dateStr + "T00:00:00");
+  d.setDate(d.getDate() + deltaDays);
+  return d.toISOString().slice(0, 10);
+}
 
 // Shape of the aggregated daily macro summary
 type DailySummary = {
@@ -51,34 +63,41 @@ type DailySummary = {
 };
 
 export default function TodayLogScreen() {
+  const todayStr = new Date().toISOString().slice(0, 10);
+
+  // Current date being viewed (defaults to "today")
+  const [currentDate, setCurrentDate] = useState<string>(todayStr);
+
   const [entries, setEntries] = useState<FoodLogEntry[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
 
   // ====================================================
-  // loadToday()
+  // loadForDate()
   //
-  // Loads today's logs from SQLite and computes the
-  // Daily Summary values in a single pass, based on:
-  //   total = perServing * servings
+  // Loads logs from SQLite for the given YYYY-MM-DD date
+  // and computes the Daily Summary values in a single pass.
   // ====================================================
-  const loadToday = useCallback(() => {
-    const logs = getTodayLogs();
+  const loadForDate = useCallback((date: string) => {
+    const logs = getLogsForDate(date);
     setEntries(logs);
 
     const totals = logs.reduce<DailySummary>(
       (acc, entry) => {
+        // amount = how many servings the user ate
         const amt = Number(entry.amount ?? "1");
-        const servings = Number.isFinite(amt) && amt > 0 ? amt : 1;
+        const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 1;
 
+        // Per-serving nutrition values from USDA
         const perCal = entry.calories ?? 0;
         const perP = entry.protein ?? 0;
         const perF = entry.fat ?? 0;
         const perC = entry.carbs ?? 0;
 
-        acc.calories += perCal * servings;
-        acc.protein += perP * servings;
-        acc.fat += perF * servings;
-        acc.carbs += perC * servings;
+        // Total contribution for this log row
+        acc.calories += perCal * safeAmt;
+        acc.protein += perP * safeAmt;
+        acc.fat += perF * safeAmt;
+        acc.carbs += perC * safeAmt;
 
         return acc;
       },
@@ -88,21 +107,32 @@ export default function TodayLogScreen() {
     setSummary(totals);
   }, []);
 
+  // ====================================================
   // Auto-refresh on tab focus
+  //
+  // Whenever the tab becomes active OR currentDate changes,
+  // we reload logs for that date.
+  // ====================================================
   useFocusEffect(
     useCallback(() => {
-      loadToday();
-    }, [loadToday])
+      loadForDate(currentDate);
+    }, [currentDate, loadForDate])
   );
 
-  // Delete on long-press
+  // ====================================================
+  // handleLongPress()
+  //
+  // Long-pressing an entry triggers a confirmation dialog.
+  // If confirmed, the entry is deleted from SQLite and the
+  // UI refreshes immediately for the same date.
+  // ====================================================
   const handleLongPress = (entry: FoodLogEntry) => {
     const id = entry.id;
     if (!id) return;
 
     Alert.alert(
       "Delete entry",
-      `Delete "${entry.description}" from today’s log?`,
+      `Delete "${entry.description}" from ${currentDate}'s log?`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -110,12 +140,27 @@ export default function TodayLogScreen() {
           style: "destructive",
           onPress: () => {
             deleteLogById(id);
-            loadToday();
+            loadForDate(currentDate);
           },
         },
       ]
     );
   };
+
+  // Move to previous / next day
+  const goPrevDay = () => {
+    setCurrentDate((prev) => shiftDate(prev, -1));
+  };
+
+  const goNextDay = () => {
+    setCurrentDate((prev) => {
+      // Don't go beyond "today"
+      if (prev >= todayStr) return prev;
+      return shiftDate(prev, 1);
+    });
+  };
+
+  const dateLabel = formatDateLabel(currentDate, todayStr);
 
   return (
     <ThemedView style={styles.container}>
@@ -123,6 +168,32 @@ export default function TodayLogScreen() {
       <ThemedText type="title" style={styles.title}>
         Today&apos;s Log
       </ThemedText>
+
+      {/* Date navigation row */}
+      <View style={styles.dateRow}>
+        <TouchableOpacity onPress={goPrevDay} style={styles.dateButton}>
+          <ThemedText style={styles.dateButtonText}>⟨</ThemedText>
+        </TouchableOpacity>
+
+        <ThemedText style={styles.dateLabel}>
+          {dateLabel} ({currentDate})
+        </ThemedText>
+
+        <TouchableOpacity
+          onPress={goNextDay}
+          style={styles.dateButton}
+          disabled={currentDate >= todayStr}
+        >
+          <ThemedText
+            style={[
+              styles.dateButtonText,
+              currentDate >= todayStr && styles.dateButtonDisabled,
+            ]}
+          >
+            ⟩
+          </ThemedText>
+        </TouchableOpacity>
+      </View>
 
       {/* Daily Summary (only shown when entries exist) */}
       {entries.length > 0 && summary && (
@@ -145,7 +216,7 @@ export default function TodayLogScreen() {
       {/* No entries case */}
       {entries.length === 0 ? (
         <ThemedText style={styles.empty}>
-          No entries logged today yet.
+          No entries logged for this date yet.
         </ThemedText>
       ) : (
         <FlatList
@@ -157,14 +228,13 @@ export default function TodayLogScreen() {
           }
           renderItem={({ item }) => {
             const amtRaw = Number(item.amount ?? "1");
-            const servings =
+            const amountNum =
               Number.isFinite(amtRaw) && amtRaw > 0 ? amtRaw : 1;
 
-            // Label “2 servings (236 ml each)”
-            const servingDetail =
-              item.servingSize && item.servingUnit
-                ? ` (${item.servingSize} ${item.servingUnit} each)`
-                : "";
+            // Pretty amount label: "10 g" or just "2"
+            const amountLabel = item.servingUnit
+              ? `${amountNum} ${item.servingUnit}`
+              : String(amountNum);
 
             // Per-serving values
             const perCal = item.calories ?? 0;
@@ -172,11 +242,11 @@ export default function TodayLogScreen() {
             const perF = item.fat ?? 0;
             const perC = item.carbs ?? 0;
 
-            // Totals for this entry
-            const totalCal = perCal * servings;
-            const totalP = perP * servings;
-            const totalF = perF * servings;
-            const totalC = perC * servings;
+            // Totals for this row
+            const totalCal = perCal * amountNum;
+            const totalP = perP * amountNum;
+            const totalF = perF * amountNum;
+            const totalC = perC * amountNum;
 
             return (
               <TouchableOpacity
@@ -201,10 +271,9 @@ export default function TodayLogScreen() {
                     {item.description}
                   </ThemedText>
 
-                  {/* Servings (same concept as Add screen) */}
+                  {/* Serving (pretty label) */}
                   <ThemedText style={styles.itemLine}>
-                    Servings: {servings}
-                    {servingDetail}
+                    Amount: {amountLabel}
                   </ThemedText>
 
                   {/* Calories (total) */}
@@ -241,7 +310,30 @@ export default function TodayLogScreen() {
 // ====================================================
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16 },
-  title: { marginBottom: 16 },
+
+  title: { marginBottom: 8 },
+
+  dateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+    gap: 16,
+  },
+  dateButton: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  dateButtonText: {
+    fontSize: 20,
+  },
+  dateButtonDisabled: {
+    opacity: 0.3,
+  },
+  dateLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
 
   summaryCard: {
     padding: 12,
