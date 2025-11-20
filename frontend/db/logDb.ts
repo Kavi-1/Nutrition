@@ -7,7 +7,7 @@
 // `expo-sqlite` API to store food log entries locally
 // on iOS and Android devices.
 //
-// ⚠️ IMPORTANT:
+// IMPORTANT:
 // This must **NOT** run on the Web. Web workers cannot
 // load SQLite WASM in your Expo version. Our project
 // uses native-only database access, so this file will be
@@ -133,6 +133,28 @@ export function insertFoodLog(entry: FoodLogEntry): number {
 
 /**
  * ================================================
+ * Delete a food log entry by ID
+ * ================================================
+ *
+ * Removes a single row from the database using the
+ * primary key `id`.
+ *
+ * This is used by the “Today Log” screen when the user
+ * long-presses a log entry.
+ *
+ * @param id  Primary key of the row to delete
+ */
+export function deleteLogById(id: number): void {
+  const stmt = db.prepareSync(`
+    DELETE FROM FoodLogEntries
+    WHERE id = ?
+  `);
+
+  stmt.executeSync([id]);
+}
+
+/**
+ * ================================================
  * Query logs for a specific date (YYYY-MM-DD)
  * ================================================
  *
@@ -166,4 +188,53 @@ export function getLogsForDate(date: string): FoodLogEntry[] {
 export function getTodayLogs(): FoodLogEntry[] {
   const today = new Date().toISOString().slice(0, 10);
   return getLogsForDate(today);
+}
+
+/**
+ * ================================================
+ * Load / Update a single log entry by ID
+ * ================================================
+ */
+
+/**
+ * getLogById
+ *
+ * Fetch a single FoodLogEntry row by its primary key.
+ * Returns `null` if not found.
+ */
+export function getLogById(id: number): FoodLogEntry | null {
+  const rows = db.getAllSync<FoodLogEntry>(
+    `
+    SELECT *
+    FROM FoodLogEntries
+    WHERE id = ?
+    LIMIT 1
+    `,
+    [id]
+  );
+
+  return rows[0] ?? null;
+}
+
+/**
+ * updateLogServingAndNotes
+ *
+ * Update only the serving `amount` and free-text `notes`
+ * fields for an existing log entry.
+ *
+ * The rest of the nutrition data (calories / macros) is
+ * kept as originally logged for that food.
+ */
+export function updateLogServingAndNotes(
+  id: number,
+  amount: string,
+  notes?: string
+): void {
+  const stmt = db.prepareSync(`
+    UPDATE FoodLogEntries
+    SET amount = ?, notes = ?
+    WHERE id = ?
+  `);
+
+  stmt.executeSync([amount, notes ?? null, id]);
 }
