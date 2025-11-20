@@ -32,7 +32,7 @@ import { useLocalSearchParams, router } from "expo-router";
 
 import {
   type FoodLogEntry,
-  updateLogAmountAndNotes,
+  updateFoodLogAmountAndNotes,  // ✅ 这里改成正确的名字
 } from "../../db/logDb";
 
 export default function EditLogScreen() {
@@ -110,11 +110,12 @@ export default function EditLogScreen() {
     }
 
     try {
-    updateLogAmountAndNotes(
-      entry.id,
-      trimmedAmount,
-      notes.trim() || undefined
-    );
+      // ✅ 调正确的函数名
+      updateFoodLogAmountAndNotes(
+        entry.id,
+        trimmedAmount,
+        notes.trim() || undefined
+      );
       router.back(); // go back to Today's Log; it will refresh on focus
     } catch (e: any) {
       console.error(e);

@@ -231,10 +231,10 @@ export default function TodayLogScreen() {
             const amountNum =
               Number.isFinite(amtRaw) && amtRaw > 0 ? amtRaw : 1;
 
-            // Pretty amount label: "10 g" or just "2"
-            const amountLabel = item.servingUnit
-              ? `${amountNum} ${item.servingUnit}`
-              : String(amountNum);
+            // We interpret "amount" as **number of servings**,
+            // not as grams / ml. So we show e.g. "2 servings".
+            const servingsLabel =
+              amountNum === 1 ? "1 serving" : `${amountNum} servings`;
 
             // Per-serving values
             const perCal = item.calories ?? 0;
@@ -271,9 +271,9 @@ export default function TodayLogScreen() {
                     {item.description}
                   </ThemedText>
 
-                  {/* Serving (pretty label) */}
+                  {/* Servings label */}
                   <ThemedText style={styles.itemLine}>
-                    Amount: {amountLabel}
+                    Amount: {servingsLabel}
                   </ThemedText>
 
                   {/* Calories (total) */}
