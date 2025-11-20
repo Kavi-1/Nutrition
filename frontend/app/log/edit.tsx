@@ -3,7 +3,7 @@
 // Edit Log Screen
 //
 // Allows the user to edit an existing FoodLogEntry:
-//   - change the "amount" (servings)
+//   - change the "servings" (amount)
 //   - change optional "notes"
 //
 // We navigate here from the Today Log screen with:
@@ -12,10 +12,10 @@
 //     params: { data: JSON.stringify(entry) },
 //   });
 //
-// On save, we call `updateLogAmountAndNotes` which
-// simply updates amount + notes. Calories / macros
-// are stored as per-serving values and totals are
-// computed in the UI.
+// On save, we call `updateFoodLogAmountAndNotes` which:
+//   - reloads the row from SQLite by id
+//   - computes a scaling factor based on amount change
+//   - updates calories / macros / amount / notes
 // ====================================================
 
 import React, { useEffect, useState } from "react";
@@ -83,7 +83,13 @@ export default function EditLogScreen() {
   // handleSave()
   //
   // Validates input and calls our DB helper:
-  //   updateLogAmountAndNotes(id, newAmount, newNotes)
+  //   updateFoodLogAmountAndNotes(id, newAmount, newNotes)
+  //
+  // That helper:
+  //   - loads the existing row by id
+  //   - computes factor = newAmount / oldAmount
+  //   - scales calories / macros by factor
+  //   - updates amount + notes + nutrition totals
   // ============================================
   const handleSave = () => {
     if (!entry || !entry.id) {
@@ -93,25 +99,26 @@ export default function EditLogScreen() {
 
     const trimmedAmount = amount.trim();
     if (!trimmedAmount) {
-      Alert.alert("Missing amount", "Please enter a serving amount.");
+      Alert.alert("Missing servings", "Please enter how many servings.");
       return;
     }
 
     const numericAmount = Number(trimmedAmount);
     if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
-      Alert.alert("Invalid amount", "Amount must be a positive number.");
+      Alert.alert("Invalid servings", "Servings must be a positive number.");
       return;
     }
 
     try {
-      updateLogAmountAndNotes(entry.id, trimmedAmount, notes.trim() || undefined);
+    updateLogAmountAndNotes(
+      entry.id,
+      trimmedAmount,
+      notes.trim() || undefined
+    );
       router.back(); // go back to Today's Log; it will refresh on focus
     } catch (e: any) {
       console.error(e);
-      Alert.alert(
-        "Error",
-        e?.message ?? "Failed to update log entry."
-      );
+      Alert.alert("Error", e?.message ?? "Failed to update log entry.");
     }
   };
 
@@ -140,14 +147,14 @@ export default function EditLogScreen() {
       <Text style={styles.label}>Food</Text>
       <Text style={styles.value}>{entry.description}</Text>
 
-      {/* Amount input */}
-      <Text style={styles.label}>Amount</Text>
+      {/* Servings input (same meaning as "amount" field) */}
+      <Text style={styles.label}>Servings</Text>
       <TextInput
         style={styles.input}
         value={amount}
         onChangeText={setAmount}
         keyboardType="numeric"
-        placeholder="e.g. 1"
+        placeholder="e.g. 2"
       />
 
       {/* Notes input */}

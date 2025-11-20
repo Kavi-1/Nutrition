@@ -14,11 +14,10 @@
 //   • Tap an entry → open Log Details / Edit screen
 //   • Long-press an entry → delete it from today’s log
 //
-// IMPORTANT:
-//   calories / macros in SQLite are stored as
-//   **per-serving** values from USDA.
-//   Here we compute totals as:
-//      total = perServing * amount
+// Semantics:
+//   - `amount` is the **number of servings** eaten
+//   - `servingSize` + `servingUnit` describe 1 serving
+//     (e.g., 1 serving = 236 ml)
 // ====================================================
 
 import React, { useState, useCallback } from "react";
@@ -59,7 +58,8 @@ export default function TodayLogScreen() {
   // loadToday()
   //
   // Loads today's logs from SQLite and computes the
-  // Daily Summary values in a single pass.
+  // Daily Summary values in a single pass, based on:
+  //   total = perServing * servings
   // ====================================================
   const loadToday = useCallback(() => {
     const logs = getTodayLogs();
@@ -68,17 +68,17 @@ export default function TodayLogScreen() {
     const totals = logs.reduce<DailySummary>(
       (acc, entry) => {
         const amt = Number(entry.amount ?? "1");
-        const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 1;
+        const servings = Number.isFinite(amt) && amt > 0 ? amt : 1;
 
         const perCal = entry.calories ?? 0;
-        const perP   = entry.protein  ?? 0;
-        const perF   = entry.fat      ?? 0;
-        const perC   = entry.carbs    ?? 0;
+        const perP = entry.protein ?? 0;
+        const perF = entry.fat ?? 0;
+        const perC = entry.carbs ?? 0;
 
-        acc.calories += perCal * safeAmt;
-        acc.protein  += perP   * safeAmt;
-        acc.fat      += perF   * safeAmt;
-        acc.carbs    += perC   * safeAmt;
+        acc.calories += perCal * servings;
+        acc.protein += perP * servings;
+        acc.fat += perF * servings;
+        acc.carbs += perC * servings;
 
         return acc;
       },
@@ -157,24 +157,26 @@ export default function TodayLogScreen() {
           }
           renderItem={({ item }) => {
             const amtRaw = Number(item.amount ?? "1");
-            const amountNum =
+            const servings =
               Number.isFinite(amtRaw) && amtRaw > 0 ? amtRaw : 1;
 
-            // Pretty amount label: "10 g"
-            const amountLabel = item.servingUnit
-              ? `${amountNum} ${item.servingUnit}`
-              : String(amountNum);
+            // Label “2 servings (236 ml each)”
+            const servingDetail =
+              item.servingSize && item.servingUnit
+                ? ` (${item.servingSize} ${item.servingUnit} each)`
+                : "";
 
-            // Compute totals from per-serving values
+            // Per-serving values
             const perCal = item.calories ?? 0;
-            const perP   = item.protein  ?? 0;
-            const perF   = item.fat      ?? 0;
-            const perC   = item.carbs    ?? 0;
+            const perP = item.protein ?? 0;
+            const perF = item.fat ?? 0;
+            const perC = item.carbs ?? 0;
 
-            const totalCal = perCal * amountNum;
-            const totalP   = perP   * amountNum;
-            const totalF   = perF   * amountNum;
-            const totalC   = perC   * amountNum;
+            // Totals for this entry
+            const totalCal = perCal * servings;
+            const totalP = perP * servings;
+            const totalF = perF * servings;
+            const totalC = perC * servings;
 
             return (
               <TouchableOpacity
@@ -199,9 +201,10 @@ export default function TodayLogScreen() {
                     {item.description}
                   </ThemedText>
 
-                  {/* Serving (pretty label) */}
+                  {/* Servings (same concept as Add screen) */}
                   <ThemedText style={styles.itemLine}>
-                    Amount: {amountLabel}
+                    Servings: {servings}
+                    {servingDetail}
                   </ThemedText>
 
                   {/* Calories (total) */}
