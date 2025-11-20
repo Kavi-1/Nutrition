@@ -1,389 +1,286 @@
-// app/(tabs)/profile.tsx
-// ====================================================
-// Profile Screen
-//
-// Displays and edits a simple health profile stored in
-// local SQLite (UserProfile table).
-//
-// Fields:
-//   - Age
-//   - Height
-//   - Weight
-//   - Gender
-//   - Allergies (comma-separated)
-//   - Dietary Preferences
-//
-// Data flow:
-//   • On mount → load profile via getUserProfile()
-//   • User taps "Edit" → switch to editable TextInputs
-//   • User taps "Save" → upsertUserProfile(...) in SQLite
-//
-// Also includes a "Reset DB" button at the bottom to
-// clear all food log entries for debugging.
-// ====================================================
+import { StyleSheet, ScrollView, View, Button, Alert, TextInput, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { ThemedText } from '@/components/themed-text';
+import { ThemedView } from '@/components/themed-view';
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useState, useEffect } from 'react';
+import { resetLogDb } from '../../db/logDb';
+import api, { HealthProfile } from '../services/api';
 
-import React, { useEffect, useState } from "react";
-import {
-  StyleSheet,
-  ScrollView,
-  View,
-  TextInput,
-  Button,
-  Alert,
-  TouchableOpacity,
-} from "react-native";
-
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-import { IconSymbol } from "@/components/ui/icon-symbol";
-
-import {
-  getUserProfile,
-  upsertUserProfile,
-  resetLogDb,
-  type UserProfile,
-} from "../../db/logDb";
-
-type EditableProfile = {
-  age: string;
-  height: string;
-  weight: string;
-  gender: string;
-  allergies: string;
-  dietaryPreferences: string;
+// test data
+const test = {
+  age: 21,
+  height: '175',
+  weight: '150',
+  gender: 'Male',
+  allergies: ["asjkdf", "sdjfshodf"],
+  dietaryPreferences: "Vegetarian"
 };
 
 export default function ProfileScreen() {
-  const [profile, setProfile] = useState<UserProfile | null>(null);
-  const [form, setForm] = useState<EditableProfile>({
-    age: "",
-    height: "",
-    weight: "",
-    gender: "",
-    allergies: "",
-    dietaryPreferences: "",
-  });
-  const [editing, setEditing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  // auth state
+  const [token, setToken] = useState<string | null>(null);
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [authError, setAuthError] = useState<string | null>(null);
 
-  // --------------------------------------------
-  // Load profile from SQLite on mount
-  // --------------------------------------------
+  // profile state
+  const [profile, setProfile] = useState<HealthProfile | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // load profile whenever token changes
   useEffect(() => {
+    if (token) {
+      loadProfile();
+    } else {
+      setProfile(null);
+    }
+  }, [token]);
+
+  const loadProfile = async () => {
+    setLoading(true);
+    setError(null);
     try {
-      const p = getUserProfile();
-      if (p) {
-        setProfile(p);
-        setForm({
-          age: p.age != null ? String(p.age) : "",
-          height: p.height ?? "",
-          weight: p.weight ?? "",
-          gender: p.gender ?? "",
-          allergies: p.allergies ?? "",
-          dietaryPreferences: p.dietaryPreferences ?? "",
-        });
-      } else {
-        // No profile yet; keep empty form
-        setProfile(null);
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Error", "Failed to load profile from database.");
+      const data = await api.getMyProfile();
+      setProfile(data);
+    } catch (err: any) {
+      console.error('Profile load error:', err);
+      setError(err.response?.data?.message || err.message || 'Failed to load profile');
     } finally {
       setLoading(false);
     }
-  }, []);
-
-  const updateField = (key: keyof EditableProfile, value: string) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  // --------------------------------------------
-  // Save profile to SQLite
-  // --------------------------------------------
-  const handleSaveProfile = () => {
+  const handleAuth = async () => {
+    if (!username || !password) {
+      setAuthError('Please enter username and password');
+      return;
+    }
+
+    setLoading(true);
+    setAuthError(null);
     try {
-      const ageNum = form.age.trim()
-        ? Number(form.age.trim())
-        : undefined;
+      const response = isLogin
+        ? await api.login({ username, password })
+        : await api.register({ username, password });
 
-      if (form.age.trim() && (!Number.isFinite(ageNum!) || ageNum! <= 0)) {
-        Alert.alert("Invalid age", "Age must be a positive number.");
-        return;
+      const { token: newToken } = response;
+      api.setToken(newToken);
+      setToken(newToken);
+      setUsername('');
+      setPassword('');
+
+      // If registering, give backend time to create profile
+      if (!isLogin) {
+        await new Promise(resolve => setTimeout(resolve, 500));
       }
-
-      const newProfile: UserProfile = {
-        id: 1,
-        age: ageNum,
-        height: form.height.trim() || undefined,
-        weight: form.weight.trim() || undefined,
-        gender: form.gender.trim() || undefined,
-        allergies: form.allergies.trim() || undefined,
-        dietaryPreferences:
-          form.dietaryPreferences.trim() || undefined,
-      };
-
-      upsertUserProfile(newProfile);
-      setProfile(newProfile);
-      setEditing(false);
-      Alert.alert("Saved", "Profile updated successfully.");
-    } catch (e) {
-      console.error(e);
-      Alert.alert("Error", "Failed to save profile.");
+    } catch (err: any) {
+      console.error('Auth error:', err);
+      setAuthError(err.response?.data?.message || err.message || `${isLogin ? 'Login' : 'Registration'} failed`);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // --------------------------------------------
-  // Reset DB (food logs only, for debugging)
-  // --------------------------------------------
-  const handleResetDb = () => {
+  const handleLogout = () => {
     Alert.alert(
-      "Reset database",
-      "This will delete all food log entries. Are you sure?",
+      "Logout",
+      "Are you sure you want to logout?",
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Reset",
+          text: "Logout",
           style: "destructive",
           onPress: () => {
-            try {
-              resetLogDb();
-              Alert.alert("Done", "Food log database has been reset.");
-            } catch (e) {
-              console.error(e);
-              Alert.alert("Error", "Failed to reset database.");
-            }
+            api.clearToken();
+            setToken(null);
+            setProfile(null);
           },
         },
       ]
     );
   };
 
-  const allergiesList =
-    form.allergies
-      .split(",")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0) || [];
+  const handleResetDb = () => {
+    Alert.alert(
+      "Reset Local Database",
+      "This will DELETE ALL log entries permanently.\nAre you sure?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => {
+            resetLogDb();
+            Alert.alert("Done", "Local log database has been reset.");
+          },
+        },
+      ]
+    );
+  };
 
+  // if not authenticated, show login/register form
+  if (!token) {
+    return (
+      <ScrollView style={styles.container}>
+        <ThemedView style={styles.content}>
+          <ThemedView style={styles.authContainer}>
+            <ThemedText type="title" style={styles.authTitle}>
+              {isLogin ? 'Login' : 'Register'}
+            </ThemedText>
+
+            <TextInput
+              style={styles.input}
+              placeholder="Username"
+              placeholderTextColor="#8E8E93"
+              value={username}
+              onChangeText={setUsername}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            <TextInput
+              style={styles.input}
+              placeholder="Password"
+              placeholderTextColor="#8E8E93"
+              value={password}
+              onChangeText={setPassword}
+              secureTextEntry
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+
+            {authError && (
+              <ThemedText style={styles.errorText}>{authError}</ThemedText>
+            )}
+
+            <TouchableOpacity
+              style={[styles.authButton, loading && styles.authButtonDisabled]}
+              onPress={handleAuth}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" />
+              ) : (
+                <ThemedText style={styles.authButtonText}>
+                  {isLogin ? 'Login' : 'Register'}
+                </ThemedText>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.switchAuthButton}
+              onPress={() => {
+                setIsLogin(!isLogin);
+                setAuthError(null);
+              }}
+            >
+              <ThemedText style={styles.switchAuthText}>
+                {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
+              </ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+        </ThemedView>
+      </ScrollView>
+    );
+  }
+
+  // else, show profile 
   return (
     <ScrollView style={styles.container}>
       <ThemedView style={styles.content}>
-        {/* Header with Edit / Save toggle */}
+        {/* Header */}
         <ThemedView style={styles.header}>
-          <ThemedText type="title" style={styles.title}>
-            Health Profile
-          </ThemedText>
-
-          {!loading && (
-            <TouchableOpacity
-              onPress={() =>
-                editing ? handleSaveProfile() : setEditing(true)
-              }
-            >
-              <ThemedText style={styles.editButtonText}>
-                {editing ? "Save" : "Edit"}
-              </ThemedText>
-            </TouchableOpacity>
-          )}
+          <ThemedText type="title" style={styles.title}>Health Profile</ThemedText>
         </ThemedView>
 
-        {/* Basic info section */}
-        <ThemedView style={styles.section}>
-          {editing ? (
-            <>
-              <EditableItem
-                icon="number"
-                label="Age"
-                value={form.age}
-                onChangeText={(v) => updateField("age", v)}
-                keyboardType="numeric"
-              />
-              <EditableItem
-                icon="arrow.up.and.down"
-                label="Height"
-                value={form.height}
-                onChangeText={(v) => updateField("height", v)}
-                placeholder="e.g. 175"
-              />
-              <EditableItem
-                icon="scalemass"
-                label="Weight"
-                value={form.weight}
-                onChangeText={(v) => updateField("weight", v)}
-                placeholder="e.g. 65"
-              />
-              <EditableItem
-                icon="person"
-                label="Gender"
-                value={form.gender}
-                onChangeText={(v) => updateField("gender", v)}
-                placeholder="e.g. Male / Female"
-              />
-            </>
-          ) : (
-            <>
-              <ProfileItem
-                icon="number"
-                label="Age"
-                value={
-                  profile?.age != null ? String(profile.age) : "Not set"
-                }
-              />
-              <ProfileItem
-                icon="arrow.up.and.down"
-                label="Height"
-                value={profile?.height ?? "Not set"}
-              />
-              <ProfileItem
-                icon="scalemass"
-                label="Weight"
-                value={profile?.weight ?? "Not set"}
-              />
-              <ProfileItem
-                icon="person"
-                label="Gender"
-                value={profile?.gender ?? "Not set"}
-              />
-            </>
-          )}
-        </ThemedView>
+        {loading && (
+          <ThemedView style={styles.loadingContainer}>
+            <ActivityIndicator size="large" />
+            <ThemedText style={styles.loadingText}>Loading profile...</ThemedText>
+          </ThemedView>
+        )}
 
-        {/* Allergies */}
+        {error && (
+          <ThemedView style={styles.errorContainer}>
+            <ThemedText style={styles.errorText}>{error}</ThemedText>
+            <Button title="Retry" onPress={loadProfile} />
+          </ThemedView>
+        )}
+
+        {!loading && !error && profile && (
+          <>
+            {/* Basic Profile Info */}
+            <ThemedView style={styles.section}>
+              <ProfileItem icon="number" label="Age" value={profile.age?.toString() ?? 'Not set'} />
+              <ProfileItem icon="arrow.up.and.down" label="Height" value={profile.height?.toString() ?? 'Not set'} />
+              <ProfileItem icon="scalemass" label="Weight" value={profile.weight?.toString() ?? 'Not set'} />
+              <ProfileItem icon="person" label="Gender" value={profile.gender ?? 'Not set'} />
+            </ThemedView>
+
+            {/* Allergies */}
+            <ThemedView style={styles.section}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>Allergies</ThemedText>
+              {profile.allergies && profile.allergies.length > 0 ? (
+                profile.allergies.map((allergy, index) => (
+                  <ThemedView key={index} style={styles.listItem}>
+                    <IconSymbol size={20} name="exclamationmark.triangle.fill" color="#FF3B30" />
+                    <ThemedText style={styles.listText}>{allergy}</ThemedText>
+                  </ThemedView>
+                ))
+              ) : (
+                <ThemedText style={styles.emptyText}>No allergies</ThemedText>
+              )}
+            </ThemedView>
+
+            {/* Dietary Preferences */}
+            <ThemedView style={styles.section}>
+              <ThemedText type="subtitle" style={styles.sectionTitle}>Dietary Preferences</ThemedText>
+              {profile.dietaryPreference ? (
+                <ThemedText style={styles.listText}>{profile.dietaryPreference}</ThemedText>
+              ) : (
+                <ThemedText style={styles.emptyText}>No dietary preferences</ThemedText>
+              )}
+            </ThemedView>
+          </>
+        )}
+
+        {/* Development Tools Section */}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Allergies
+            Developer Tools
           </ThemedText>
 
-          {editing ? (
-            <TextInput
-              style={styles.textArea}
-              value={form.allergies}
-              onChangeText={(v) => updateField("allergies", v)}
-              placeholder="e.g. peanut, dairy"
-              multiline
-            />
-          ) : allergiesList.length > 0 ? (
-            allergiesList.map((allergy, index) => (
-              <ThemedView key={index} style={styles.listItem}>
-                <IconSymbol
-                  size={20}
-                  name="exclamationmark.triangle.fill"
-                  color="#FF3B30"
-                />
-                <ThemedText style={styles.listText}>
-                  {allergy}
-                </ThemedText>
-              </ThemedView>
-            ))
-          ) : (
-            <ThemedText style={styles.emptyText}>
-              No allergies
-            </ThemedText>
-          )}
+          <View style={styles.buttonWrapper}>
+            <Button title="Reset Local DB" color="red" onPress={handleResetDb} />
+          </View>
         </ThemedView>
 
-        {/* Dietary preferences */}
-        <ThemedView style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            Dietary Preferences
-          </ThemedText>
-
-          {editing ? (
-            <TextInput
-              style={styles.textArea}
-              value={form.dietaryPreferences}
-              onChangeText={(v) =>
-                updateField("dietaryPreferences", v)
-              }
-              placeholder="e.g. Vegetarian, Halal"
-              multiline
-            />
-          ) : form.dietaryPreferences.length > 0 ? (
-            <ThemedText style={styles.listText}>
-              {form.dietaryPreferences}
-            </ThemedText>
-          ) : (
-            <ThemedText style={styles.emptyText}>
-              No dietary preferences
-            </ThemedText>
-          )}
+        {/* Logout Button */}
+        <ThemedView style={{ alignItems: 'center' }}>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <ThemedText style={styles.logoutButtonText}>Logout</ThemedText>
+          </TouchableOpacity>
         </ThemedView>
 
-        {/* Reset DB for debugging */}
-        <View style={styles.resetSection}>
-          <Button
-            title="Reset Food Log DB"
-            color="red"
-            onPress={handleResetDb}
-          />
-        </View>
       </ThemedView>
     </ScrollView>
   );
 }
 
-// --------------------------------------------
-// Presentational components
-// --------------------------------------------
-function ProfileItem({
-  icon,
-  label,
-  value,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-}) {
+function ProfileItem({ icon, label, value }: { icon: any; label: string; value: string }) {
   return (
     <ThemedView style={styles.profileItem}>
       <ThemedView style={styles.itemLeft}>
         <IconSymbol size={24} name={icon as any} color="#007AFF" />
-        <ThemedText type="defaultSemiBold" style={styles.label}>
-          {label}
-        </ThemedText>
+        <ThemedText type="defaultSemiBold" style={styles.label}>{label}</ThemedText>
       </ThemedView>
       <ThemedText style={styles.value}>{value}</ThemedText>
     </ThemedView>
   );
 }
 
-function EditableItem({
-  icon,
-  label,
-  value,
-  onChangeText,
-  keyboardType,
-  placeholder,
-}: {
-  icon: any;
-  label: string;
-  value: string;
-  onChangeText: (text: string) => void;
-  keyboardType?: "default" | "numeric";
-  placeholder?: string;
-}) {
-  return (
-    <ThemedView style={styles.profileItem}>
-      <ThemedView style={styles.itemLeft}>
-        <IconSymbol size={24} name={icon as any} color="#007AFF" />
-        <ThemedText type="defaultSemiBold" style={styles.label}>
-          {label}
-        </ThemedText>
-      </ThemedView>
-      <TextInput
-        style={[styles.valueInput]}
-        value={value}
-        onChangeText={onChangeText}
-        keyboardType={keyboardType ?? "default"}
-        placeholder={placeholder}
-      />
-    </ThemedView>
-  );
-}
-
-// ============================================
-// Styles
-// ============================================
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -392,17 +289,12 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: 'center',
     marginBottom: 30,
+    gap: 10,
   },
   title: {
     fontSize: 28,
-  },
-  editButtonText: {
-    fontSize: 16,
-    color: "#007AFF",
   },
   section: {
     marginBottom: 30,
@@ -412,39 +304,28 @@ const styles = StyleSheet.create({
     fontSize: 20,
   },
   profileItem: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#E5E5EA",
+    borderBottomColor: '#E5E5EA',
   },
   itemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 12,
-    flex: 1,
   },
   label: {
     fontSize: 16,
   },
   value: {
     fontSize: 16,
-    color: "#8E8E93",
-  },
-  valueInput: {
-    minWidth: 80,
-    textAlign: "right",
-    fontSize: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
-    paddingVertical: 2,
-    paddingHorizontal: 4,
-    color: "#000",
+    color: '#8E8E93',
   },
   listItem: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 10,
     paddingVertical: 8,
   },
@@ -453,20 +334,93 @@ const styles = StyleSheet.create({
   },
   emptyText: {
     fontSize: 16,
-    color: "#8E8E93",
-    fontStyle: "italic",
+    color: '#8E8E93',
+    fontStyle: 'italic',
   },
-  textArea: {
+
+  buttonWrapper: {
+    marginTop: 10,
+  },
+
+  // auth styles
+  authContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  authTitle: {
+    fontSize: 32,
+    marginBottom: 30,
+  },
+  input: {
+    width: '100%',
+    height: 50,
     borderWidth: 1,
-    borderColor: "#ccc",
+    borderColor: '#E5E5EA',
     borderRadius: 8,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 15,
+    marginBottom: 15,
     fontSize: 16,
-    minHeight: 80,
-    textAlignVertical: "top",
+    backgroundColor: '#F9F9F9',
   },
-  resetSection: {
-    marginTop: 16,
+  authButton: {
+    width: '100%',
+    height: 50,
+    backgroundColor: '#00bb70ff',
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  authButtonDisabled: {
+    backgroundColor: '#B0B0B0',
+  },
+  authButtonText: {
+    color: '#fff',
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  switchAuthButton: {
+    marginTop: 20,
+  },
+  switchAuthText: {
+    color: '#005f21ff',
+    fontSize: 16,
+  },
+  logoutButton: {
+    minWidth: '30%',
+    height: 44,
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+    borderRadius: 50,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  logoutButtonText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  loadingContainer: {
+    alignItems: 'center',
+    padding: 20,
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: '#8E8E93',
+  },
+  errorContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  errorText: {
+    color: '#FF3B30',
+    fontSize: 16,
+    marginBottom: 10,
+    textAlign: 'center',
   },
 });
