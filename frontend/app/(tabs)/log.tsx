@@ -1,3 +1,24 @@
+// app/(tabs)/log.tsx
+// ======================================================
+// LogScreen
+//
+// This screen allows the user to search for foods using
+// the backend endpoint:
+//
+//    GET /api/nutrition/food?name=<query>
+//
+// The backend forwards the request to the USDA FDC API.
+// The UI shows:
+//   - A search bar
+//   - Loading indicator
+//   - API debug info (status + text snippet)
+//   - A scrollable list of top 10 search results
+//
+// When the user taps a food item, the app navigates to:
+//     /food/add
+// passing the selected food JSON through route params.
+// ======================================================
+
 import React, { useState } from "react";
 import {
   View,
@@ -7,18 +28,12 @@ import {
   ActivityIndicator,
   ScrollView,
   StyleSheet,
+  TouchableOpacity,
 } from "react-native";
+import { router } from "expo-router";
 
 /**
- * LogScreen
- *
- * This screen allows the user to search for foods using the backend’s
- * `/api/nutrition/food` endpoint. The results come from the USDA FDC API.
- * The screen displays:
- *   - A search input
- *   - Loading status
- *   - Debug information about the API call
- *   - A clean list of top 10 food results
+ * LogScreen Component
  */
 export default function LogScreen() {
   // User-entered search text
@@ -27,13 +42,13 @@ export default function LogScreen() {
   // Parsed API response (USDA FDC JSON)
   const [result, setResult] = useState<any | null>(null);
 
-  // Loading state for API calls
+  // Loading indicator state
   const [loading, setLoading] = useState(false);
 
-  // Error message displayed to the user
+  // Error message from failed API call
   const [error, setError] = useState<string | null>(null);
 
-  // Debug info to help development (status code + snippet)
+  // Debug text showing HTTP status + first 200 characters of response
   const [debug, setDebug] = useState<string | null>(null);
 
   /**
@@ -42,12 +57,14 @@ export default function LogScreen() {
    * Sends a request to our backend:
    *   GET http://localhost:8080/api/nutrition/food?name=<query>
    *
-   * The backend forwards the query to USDA FDC API.
+   * The backend then calls the USDA FDC API.
+   *
    * This function:
-   *   - Resets UI states
-   *   - Calls backend
-   *   - Parses JSON
-   *   - Stores the result for rendering
+   *   1. Resets local UI state
+   *   2. Performs fetch()
+   *   3. Captures debug text
+   *   4. Parses JSON (with fallback)
+   *   5. Stores parsed result for UI rendering
    */
   const handleSearch = async () => {
     const name = query.trim();
@@ -60,32 +77,32 @@ export default function LogScreen() {
     setDebug(null);
 
     try {
-      // Construct backend endpoint
+      // Build backend URL
       const url = `http://localhost:8080/api/nutrition/food?name=${encodeURIComponent(
         name
       )}`;
 
-      // Make API request
+      // Send API request
       const res = await fetch(url);
       const text = await res.text();
 
-      // Debug info (only first 200 characters)
+      // Provide short debug info
       setDebug(`status=${res.status}, snippet=${text.slice(0, 200)}...`);
 
-      // If backend returned an error status code
+      // Non-200 response → throw
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      // Attempt to parse JSON response
+      // Try to parse JSON
       let parsed: any;
       try {
         parsed = JSON.parse(text);
       } catch {
-        parsed = text; // Fallback if JSON parsing fails
+        parsed = text; // Very rare fallback
       }
 
-      setResult(parsed); // Save parsed data
+      setResult(parsed);
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "Unknown error");
@@ -95,8 +112,13 @@ export default function LogScreen() {
   };
 
   /**
-   * Extract USDA food list from result JSON.
-   * USDA returns: { totalHits, foods: [...] }
+   * Extract USDA food list from API result.
+   *
+   * USDA returns JSON shaped like:
+   *   {
+   *     totalHits: number,
+   *     foods: [ ... ]
+   *   }
    */
   const foods: any[] =
     result && Array.isArray(result.foods) ? result.foods : [];
@@ -105,7 +127,7 @@ export default function LogScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>Search Food</Text>
 
-      {/* Search input row */}
+      {/* Search input and button */}
       <View style={styles.row}>
         <TextInput
           style={styles.input}
@@ -116,22 +138,31 @@ export default function LogScreen() {
         <Button title="Search" onPress={handleSearch} />
       </View>
 
-      {/* Loading indicator */}
+      {/* Loading state */}
       {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
 
-      {/* Error display */}
+      {/* Error text (if API failed) */}
       {error && (
         <Text style={styles.error}>Failed to search food: {error}</Text>
       )}
 
-      {/* Development debug information */}
+      {/* Development debug info */}
       {debug && <Text style={styles.debug}>Debug: {debug}</Text>}
 
-      {/* Food search result list (top 10 items) */}
+      {/* Food search result list (top 10 results) */}
       {foods.length > 0 && (
         <ScrollView style={styles.resultBox}>
           {foods.slice(0, 10).map((food) => (
-            <View key={food.fdcId ?? food.description} style={styles.item}>
+            <TouchableOpacity
+              key={food.fdcId ?? food.description}
+              style={styles.item}
+              onPress={() =>
+                router.push({
+                  pathname: "/food/add",
+                  params: { data: JSON.stringify(food) }, // Pass full JSON object
+                })
+              }
+            >
               {/* Food name */}
               <Text style={styles.itemName}>{food.description}</Text>
 
@@ -146,12 +177,12 @@ export default function LogScreen() {
                   Category: {food.foodCategory}
                 </Text>
               )}
-            </View>
+            </TouchableOpacity>
           ))}
         </ScrollView>
       )}
 
-      {/* If result exists but foods[] is missing, show raw JSON for debugging */}
+      {/* If result exists but foods[] missing, show raw response JSON */}
       {result && foods.length === 0 && (
         <ScrollView style={styles.resultBox}>
           <Text selectable>{JSON.stringify(result, null, 2)}</Text>
@@ -162,7 +193,7 @@ export default function LogScreen() {
 }
 
 /**
- * Basic styles for layout and list appearance
+ * Basic screen styles
  */
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: "white" },
