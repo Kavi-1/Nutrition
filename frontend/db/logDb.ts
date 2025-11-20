@@ -23,6 +23,12 @@ import * as SQLite from "expo-sqlite";
  *
  * Represents a single row inside the SQLite table.
  * Most fields are optional because USDA search data varies.
+ *
+ * NOTE:
+ *   calories / protein / fat / carbs are stored as
+ *   **per-serving** values from USDA, NOT multiplied
+ *   by `amount`. Total nutrients for a log are computed
+ *   in the UI as: perServing * amount.
  */
 export type FoodLogEntry = {
   id?: number;                     // Auto-increment primary key
@@ -32,12 +38,12 @@ export type FoodLogEntry = {
   category?: string;               // USDA category
   servingSize?: number;            // Reference serving size (optional)
   servingUnit?: string;            // Unit for serving size
-  amount: string;                  // Amount user ate (e.g. "1", "2.5")
+  amount: string;                  // Servings eaten (e.g. "1", "2.5")
   notes?: string;                  // Optional free text
-  calories?: number;               // Energy content
-  protein?: number;                // Protein grams
-  fat?: number;                    // Fat grams
-  carbs?: number;                  // Carbs grams
+  calories?: number;               // per-serving calories (USDA value)
+  protein?: number;                // per-serving protein grams
+  fat?: number;                    // per-serving fat grams
+  carbs?: number;                  // per-serving carbs grams
   createdAt?: string;              // ISO timestamp of log creation
 };
 
@@ -45,13 +51,6 @@ export type FoodLogEntry = {
  * ================================================
  * Open SQLite Database
  * ================================================
- *
- * Uses Expo’s new synchronous API:
- *     SQLite.openDatabaseSync()
- *
- * - Works on iOS and Android
- * - Will throw errors on Web (which is fine,
- *   because our project disables web DB usage)
  */
 const db = SQLite.openDatabaseSync("labeliq.db");
 
@@ -59,10 +58,6 @@ const db = SQLite.openDatabaseSync("labeliq.db");
  * ================================================
  * Initialize database schema
  * ================================================
- *
- * Creates the `FoodLogEntries` table if it does not exist.
- * This function is idempotent — running it multiple times
- * has no side effects.
  */
 export function initLogDb() {
   db.execSync(`
@@ -93,10 +88,9 @@ initLogDb();
  * Insert a new food log entry
  * ================================================
  *
- * @param entry  A structured FoodLogEntry object
- * @returns      The row ID of the newly inserted entry
- *
- * Fields not provided default to NULL (SQLite-compatible).
+ * Stores per-serving nutrition values from USDA.
+ * `amount` is **not** applied here; totals are computed
+ * later in the UI using amount × per-serving.
  */
 export function insertFoodLog(entry: FoodLogEntry): number {
   const stmt = db.prepareSync(`
@@ -109,7 +103,6 @@ export function insertFoodLog(entry: FoodLogEntry): number {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
-  // Use provided timestamp or generate a new one
   const createdAt = entry.createdAt ?? new Date().toISOString();
 
   const result = stmt.executeSync([
@@ -135,14 +128,6 @@ export function insertFoodLog(entry: FoodLogEntry): number {
  * ================================================
  * Delete a food log entry by ID
  * ================================================
- *
- * Removes a single row from the database using the
- * primary key `id`.
- *
- * This is used by the “Today Log” screen when the user
- * long-presses a log entry.
- *
- * @param id  Primary key of the row to delete
  */
 export function deleteLogById(id: number): void {
   const stmt = db.prepareSync(`
@@ -158,12 +143,8 @@ export function deleteLogById(id: number): void {
  * Query logs for a specific date (YYYY-MM-DD)
  * ================================================
  *
- * This function filters entries by comparing the
- * first 10 characters of createdAt (ISO timestamp).
- *
- * Example:
- *   createdAt = "2025-11-20T03:40:34.123Z"
- *   substr(createdAt, 1, 10) = "2025-11-20"
+ * createdAt is ISO timestamp. We compare only the date
+ * prefix (first 10 characters).
  */
 export function getLogsForDate(date: string): FoodLogEntry[] {
   return db.getAllSync<FoodLogEntry>(
@@ -181,9 +162,6 @@ export function getLogsForDate(date: string): FoodLogEntry[] {
  * ================================================
  * Convenience helper: get today's logs
  * ================================================
- *
- * Produces YYYY-MM-DD from current device time,
- * then reuses getLogsForDate().
  */
 export function getTodayLogs(): FoodLogEntry[] {
   const today = new Date().toISOString().slice(0, 10);
@@ -192,43 +170,37 @@ export function getTodayLogs(): FoodLogEntry[] {
 
 /**
  * ================================================
- * Load / Update a single log entry by ID
+ * Fetch a single log entry by ID
  * ================================================
- */
-
-/**
- * getLogById
  *
- * Fetch a single FoodLogEntry row by its primary key.
- * Returns `null` if not found.
+ * Used by the Edit screen to load the record that
+ * the user wants to modify.
  */
 export function getLogById(id: number): FoodLogEntry | null {
-  const rows = db.getAllSync<FoodLogEntry>(
+  const row = db.getFirstSync<FoodLogEntry>(
     `
     SELECT *
     FROM FoodLogEntries
     WHERE id = ?
-    LIMIT 1
     `,
     [id]
   );
 
-  return rows[0] ?? null;
+  return row ?? null;
 }
 
 /**
- * updateLogServingAndNotes
+ * ================================================
+ * Update a log entry's amount + notes
+ * ================================================
  *
- * Update only the serving `amount` and free-text `notes`
- * fields for an existing log entry.
- *
- * The rest of the nutrition data (calories / macros) is
- * kept as originally logged for that food.
+ * We DO NOT touch calories / macros here anymore.
+ * They always remain per-serving USDA values.
  */
-export function updateLogServingAndNotes(
+export function updateLogAmountAndNotes(
   id: number,
-  amount: string,
-  notes?: string
+  newAmount: string,
+  newNotes?: string
 ): void {
   const stmt = db.prepareSync(`
     UPDATE FoodLogEntries
@@ -236,5 +208,15 @@ export function updateLogServingAndNotes(
     WHERE id = ?
   `);
 
-  stmt.executeSync([amount, notes ?? null, id]);
+  stmt.executeSync([newAmount, newNotes ?? null, id]);
+}
+
+/**
+ * ================================================
+ * Dev helper: reset / drop the table
+ * ================================================
+ */
+export function resetLogDb(): void {
+  db.execSync(`DROP TABLE IF EXISTS FoodLogEntries;`);
+  initLogDb();
 }

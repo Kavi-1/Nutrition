@@ -14,26 +14,24 @@ import { insertFoodLog, type FoodLogEntry } from "../../db/logDb";
 /**
  * AddFoodScreen
  *
- * This screen displays detailed nutrition information for a selected food item
- * (passed from the search page), allows the user to input serving amount
- * and optional notes, and then saves the entry into the local SQLite log.
+ * Shows details for a selected food item, a short nutrition summary,
+ * and lets the user enter serving amount + notes before adding to log.
  *
- * Workflow:
- *    - Food item received via navigation params
- *    - Extract macros from USDA search JSON
- *    - User enters servings + notes
- *    - Insert formatted entry into SQLite
+ * IMPORTANT:
+ *   calories / protein / fat / carbs that we save to SQLite are
+ *   **per-serving** values from USDA (NOT multiplied by amount).
+ *   The Today Log screen will compute totals as:
+ *
+ *      total = perServing * amount
  */
 export default function AddFoodScreen() {
   const { data } = useLocalSearchParams();
   const food = data ? JSON.parse(data as string) : null;
 
-  // User input states
   const [amount, setAmount] = useState<string>("1");
   const [notes, setNotes] = useState<string>("");
   const [confirmation, setConfirmation] = useState<string | null>(null);
 
-  // Handle missing food param safely
   if (!food) {
     return (
       <View style={styles.container}>
@@ -42,43 +40,25 @@ export default function AddFoodScreen() {
     );
   }
 
-  /**
-   * ===============================
-   *  Parse Nutrition Information
-   * ===============================
-   *
-   * USDA's /foods/search endpoint does NOT always include full nutrition data.
-   * When available, nutrients appear in `food.foodNutrients`.
-   *
-   * We match nutrients by name using regex because:
-   *   - Different datasets may not include nutrientNumber
-   *   - USDA uses slightly different naming conventions
-   */
+  // Nutrition parsing: try to read macros from USDA search JSON
   const nutrients: any[] = Array.isArray(food.foodNutrients)
     ? food.foodNutrients
     : [];
 
-  /** Helper to match nutrient by name text */
   const pickByName = (pattern: RegExp) =>
     nutrients.find(
       (n) =>
         typeof n.nutrientName === "string" && pattern.test(n.nutrientName)
     );
 
-  // Extract macros when available
-  const energy = pickByName(/energy/i); // kcal
+  const energy = pickByName(/energy/i); // "Energy"
   const protein = pickByName(/protein/i);
-  const fat = pickByName(/total lipid\s*\(fat\)/i); // USDA naming
+  const fat = pickByName(/total lipid\s*\(fat\)/i); // "Total lipid (fat)"
   const carbs = pickByName(/carbohydrate, by difference/i);
 
-  // Used to determine whether to show nutrition summary
   const hasMacros = !!(energy || protein || fat || carbs);
 
-  /**
-   * ====================================
-   *  Add Entry to Local SQLite Database
-   * ====================================
-   */
+  /** Add to local SQLite log */
   const handleAddToLog = () => {
     const trimmedAmount = amount.trim();
     if (!trimmedAmount) {
@@ -86,7 +66,16 @@ export default function AddFoodScreen() {
       return;
     }
 
-    /** Construct entry object that matches SQLite table format */
+    const amountNum = Number(trimmedAmount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      Alert.alert("Invalid amount", "Amount must be a positive number.");
+      return;
+    }
+
+    // Key point:
+    // We save *per-serving* nutrients from USDA here.
+    // `amount` is stored as a string, and totals are computed later
+    // on the Today Log screen.
     const entry: FoodLogEntry = {
       fdcId: food.fdcId,
       description: food.description,
@@ -96,10 +85,10 @@ export default function AddFoodScreen() {
       servingUnit: food.servingSizeUnit,
       amount: trimmedAmount,
       notes: notes.trim() || undefined,
-      calories: energy?.value,
-      protein: protein?.value,
-      fat: fat?.value,
-      carbs: carbs?.value,
+      calories: energy ? Number(energy.value) : undefined,
+      protein: protein ? Number(protein.value) : undefined,
+      fat: fat ? Number(fat.value) : undefined,
+      carbs: carbs ? Number(carbs.value) : undefined,
     };
 
     try {
@@ -114,9 +103,7 @@ export default function AddFoodScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ==================== */}
-      {/*  Basic Food Metadata */}
-      {/* ==================== */}
+      {/* Basic food info */}
       <Text style={styles.title}>{food.description}</Text>
 
       {food.brandName && (
@@ -129,9 +116,7 @@ export default function AddFoodScreen() {
 
       {food.fdcId && <Text style={styles.line}>FDC ID: {food.fdcId}</Text>}
 
-      {/* ======================= */}
-      {/*  Nutrition Summary Box  */}
-      {/* ======================= */}
+      {/* Nutrition summary */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Nutrition (per serving*)</Text>
 
@@ -169,7 +154,6 @@ export default function AddFoodScreen() {
           </>
         )}
 
-        {/* USDA reference serving when provided */}
         {food.servingSize && food.servingSizeUnit && (
           <Text style={styles.helper}>
             * USDA reference serving: {food.servingSize} {food.servingSizeUnit}
@@ -177,9 +161,7 @@ export default function AddFoodScreen() {
         )}
       </View>
 
-      {/* ==================== */}
-      {/*  Serving Input Field */}
-      {/* ==================== */}
+      {/* Serving input */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Serving</Text>
         <TextInput
@@ -190,13 +172,11 @@ export default function AddFoodScreen() {
           placeholder="e.g. 1"
         />
         <Text style={styles.helper}>
-          Enter how many servings you ate (we will wire this to backend later).
+          Enter how many servings you ate (totals are calculated later).
         </Text>
       </View>
 
-      {/* ==================== */}
-      {/*  Notes Input Field  */}
-      {/* ==================== */}
+      {/* Notes */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Notes (optional)</Text>
         <TextInput
@@ -208,12 +188,10 @@ export default function AddFoodScreen() {
         />
       </View>
 
-      {/* Save button */}
       <View style={styles.buttonWrapper}>
         <Button title="Add to Log" onPress={handleAddToLog} />
       </View>
 
-      {/* Confirmation message */}
       {confirmation && (
         <Text style={styles.confirmation}>{confirmation}</Text>
       )}
@@ -221,7 +199,6 @@ export default function AddFoodScreen() {
   );
 }
 
-/** Styles for layout, spacing, and typography */
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 16, backgroundColor: "white" },
   title: { fontSize: 22, fontWeight: "700", marginBottom: 12 },

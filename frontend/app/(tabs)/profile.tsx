@@ -1,8 +1,9 @@
-import { StyleSheet, ScrollView, View } from 'react-native';
+import { StyleSheet, ScrollView, View, Button, Alert } from 'react-native';
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useState } from 'react';
+import { resetLogDb } from '../../db/logDb';
 
 // test data
 const test = {
@@ -17,13 +18,33 @@ const test = {
 export default function ProfileScreen() {
   const [profile] = useState(test);
 
+  const handleResetDb = () => {
+    Alert.alert(
+      "Reset Local Database",
+      "This will DELETE ALL log entries permanently.\nAre you sure?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete All",
+          style: "destructive",
+          onPress: () => {
+            resetLogDb();
+            Alert.alert("Done", "Local log database has been reset.");
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <ScrollView style={styles.container}>
       <ThemedView style={styles.content}>
+        {/* Header */}
         <ThemedView style={styles.header}>
           <ThemedText type="title" style={styles.title}>Health Profile</ThemedText>
         </ThemedView>
 
+        {/* Basic Profile Info */}
         <ThemedView style={styles.section}>
           <ProfileItem icon="number" label="Age" value={profile.age.toString()} />
           <ProfileItem icon="arrow.up.and.down" label="Height" value={profile.height} />
@@ -31,6 +52,7 @@ export default function ProfileScreen() {
           <ProfileItem icon="person" label="Gender" value={profile.gender} />
         </ThemedView>
 
+        {/* Allergies */}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>Allergies</ThemedText>
           {profile.allergies.length > 0 ? (
@@ -45,6 +67,7 @@ export default function ProfileScreen() {
           )}
         </ThemedView>
 
+        {/* Dietary Preferences */}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>Dietary Preferences</ThemedText>
           {profile.dietaryPreferences.length > 0 ? (
@@ -53,6 +76,18 @@ export default function ProfileScreen() {
             <ThemedText style={styles.emptyText}>No dietary preferences</ThemedText>
           )}
         </ThemedView>
+
+        {/* Development Tools Section */}
+        <ThemedView style={styles.section}>
+          <ThemedText type="subtitle" style={styles.sectionTitle}>
+            Developer Tools
+          </ThemedText>
+
+          <View style={styles.buttonWrapper}>
+            <Button title="Reset Local DB" color="red" onPress={handleResetDb} />
+          </View>
+        </ThemedView>
+
       </ThemedView>
     </ScrollView>
   );
@@ -125,5 +160,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#8E8E93',
     fontStyle: 'italic',
+  },
+
+  buttonWrapper: {
+    marginTop: 10,
   },
 });

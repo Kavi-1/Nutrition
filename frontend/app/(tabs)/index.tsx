@@ -13,6 +13,12 @@
 // Additional features:
 //   • Tap an entry → open Log Details / Edit screen
 //   • Long-press an entry → delete it from today’s log
+//
+// IMPORTANT:
+//   calories / macros in SQLite are stored as
+//   **per-serving** values from USDA.
+//   Here we compute totals as:
+//      total = perServing * amount
 // ====================================================
 
 import React, { useState, useCallback } from "react";
@@ -33,6 +39,9 @@ import {
   deleteLogById,
   type FoodLogEntry,
 } from "../../db/logDb";
+
+// Helper: format number with 1 decimal place
+const format1 = (v: number) => v.toFixed(1);
 
 // Shape of the aggregated daily macro summary
 type DailySummary = {
@@ -56,13 +65,21 @@ export default function TodayLogScreen() {
     const logs = getTodayLogs();
     setEntries(logs);
 
-    // Aggregate macro totals
     const totals = logs.reduce<DailySummary>(
       (acc, entry) => {
-        acc.calories += Number(entry.calories ?? 0);
-        acc.protein += Number(entry.protein ?? 0);
-        acc.fat += Number(entry.fat ?? 0);
-        acc.carbs += Number(entry.carbs ?? 0);
+        const amt = Number(entry.amount ?? "1");
+        const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 1;
+
+        const perCal = entry.calories ?? 0;
+        const perP   = entry.protein  ?? 0;
+        const perF   = entry.fat      ?? 0;
+        const perC   = entry.carbs    ?? 0;
+
+        acc.calories += perCal * safeAmt;
+        acc.protein  += perP   * safeAmt;
+        acc.fat      += perF   * safeAmt;
+        acc.carbs    += perC   * safeAmt;
+
         return acc;
       },
       { calories: 0, protein: 0, fat: 0, carbs: 0 }
@@ -71,28 +88,14 @@ export default function TodayLogScreen() {
     setSummary(totals);
   }, []);
 
-  // ====================================================
   // Auto-refresh on tab focus
-  //
-  // useFocusEffect ensures that whenever the user:
-  //   • returns from the Add Food screen
-  //   • switches between bottom tabs
-  //
-  // the list & summary are updated instantly.
-  // ====================================================
   useFocusEffect(
     useCallback(() => {
       loadToday();
     }, [loadToday])
   );
 
-  // ====================================================
-  // handleLongPress()
-  //
-  // Long-pressing an entry triggers a confirmation dialog.
-  // If confirmed, the entry is deleted from SQLite and the
-  // UI refreshes immediately.
-  // ====================================================
+  // Delete on long-press
   const handleLongPress = (entry: FoodLogEntry) => {
     const id = entry.id;
     if (!id) return;
@@ -133,8 +136,8 @@ export default function TodayLogScreen() {
           </ThemedText>
 
           <ThemedText style={styles.summaryLine}>
-            Protein: {summary.protein.toFixed(1)} g • Fat:{" "}
-            {summary.fat.toFixed(1)} g • Carbs: {summary.carbs.toFixed(1)} g
+            Protein: {format1(summary.protein)} g • Fat:{" "}
+            {format1(summary.fat)} g • Carbs: {format1(summary.carbs)} g
           </ThemedText>
         </View>
       )}
@@ -153,24 +156,38 @@ export default function TodayLogScreen() {
             Math.random().toString()
           }
           renderItem={({ item }) => {
-            // Pretty amount label: "1 g" instead of "1 × g"
+            const amtRaw = Number(item.amount ?? "1");
+            const amountNum =
+              Number.isFinite(amtRaw) && amtRaw > 0 ? amtRaw : 1;
+
+            // Pretty amount label: "10 g"
             const amountLabel = item.servingUnit
-              ? `${item.amount} ${item.servingUnit}`
-              : item.amount;
+              ? `${amountNum} ${item.servingUnit}`
+              : String(amountNum);
+
+            // Compute totals from per-serving values
+            const perCal = item.calories ?? 0;
+            const perP   = item.protein  ?? 0;
+            const perF   = item.fat      ?? 0;
+            const perC   = item.carbs    ?? 0;
+
+            const totalCal = perCal * amountNum;
+            const totalP   = perP   * amountNum;
+            const totalF   = perF   * amountNum;
+            const totalC   = perC   * amountNum;
 
             return (
               <TouchableOpacity
                 // Short press → open log details / edit screen
                 onPress={() => {
-                  if (!item.id) return;
                   router.push({
                     pathname: "/log/edit",
-                    params: { id: item.id.toString() },
+                    params: { data: JSON.stringify(item) },
                   });
                 }}
-                // Long press → delete with confirmation dialog
+                // Long press → delete
                 onLongPress={() => handleLongPress(item)}
-                delayLongPress={400} // adjust press duration if needed
+                delayLongPress={400}
                 activeOpacity={0.7}
               >
                 <View style={styles.item}>
@@ -187,24 +204,18 @@ export default function TodayLogScreen() {
                     Amount: {amountLabel}
                   </ThemedText>
 
-                  {/* Calories */}
-                  {item.calories != null && (
-                    <ThemedText style={styles.itemLine}>
-                      Calories: {item.calories} kcal
-                    </ThemedText>
-                  )}
+                  {/* Calories (total) */}
+                  <ThemedText style={styles.itemLine}>
+                    Calories: {format1(totalCal)} kcal
+                  </ThemedText>
 
-                  {/* Macros */}
-                  {(item.protein != null ||
-                    item.fat != null ||
-                    item.carbs != null) && (
-                    <ThemedText style={styles.itemLine}>
-                      Macros:
-                      {item.protein != null && ` P ${item.protein}g`}
-                      {item.fat != null && ` F ${item.fat}g`}
-                      {item.carbs != null && ` C ${item.carbs}g`}
-                    </ThemedText>
-                  )}
+                  {/* Macros (totals) */}
+                  <ThemedText style={styles.itemLine}>
+                    Macros:
+                    {` P ${format1(totalP)}g`}
+                    {` F ${format1(totalF)}g`}
+                    {` C ${format1(totalC)}g`}
+                  </ThemedText>
 
                   {/* Timestamp */}
                   {item.createdAt && (
