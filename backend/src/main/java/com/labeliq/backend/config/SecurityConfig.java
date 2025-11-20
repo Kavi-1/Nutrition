@@ -54,14 +54,13 @@ public class SecurityConfig {
                 // Enable Cross-Origin Resource Sharing (required for frontend → backend calls)
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
 
-                // Development mode: allow all requests without authentication
+                // make login/register public, require auth for everything else
                 .authorizeHttpRequests(auth -> auth
-                        .anyRequest().permitAll()
-                );
+                        .requestMatchers("/api/auth/**").permitAll()
+                        .anyRequest().authenticated());
 
-        // Note: JWT filter intentionally NOT added during development debugging.
-        // In production, use:
-        // .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class)
+        http.addFilterBefore(jwtAuthenticationFilter,
+                org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }
@@ -78,9 +77,9 @@ public class SecurityConfig {
 
         // Allow local frontend origins
         config.setAllowedOrigins(List.of(
-                "http://localhost:8081",  // Expo Web dev server
-                "http://localhost:8082",  // Alternative Expo port
-                "http://localhost:19006"  // Expo Go / Metro bundler
+                "http://localhost:8081", // Expo Web dev server
+                "http://localhost:8082", // Alternative Expo port
+                "http://localhost:19006" // Expo Go / Metro bundler
         ));
 
         config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
@@ -109,8 +108,7 @@ public class SecurityConfig {
      */
     @Bean
     public AuthenticationManager authenticationManager(
-            AuthenticationConfiguration config
-    ) throws Exception {
+            AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
     }
 }
