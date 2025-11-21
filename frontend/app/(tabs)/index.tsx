@@ -16,6 +16,18 @@
 // Additional features:
 //   • Tap an entry → open Log Details / Edit screen
 //   • Long-press an entry → delete it from the log
+//
+// IMPORTANT:
+//   We now treat DB fields as:
+//     - calories/protein/fat/carbs  = **per serving**
+//     - servingSize + servingUnit   = size of 1 serving (ml / g)
+//     - amount                      = what the user actually ate
+//                                    in the same unit as servingSize
+//
+//   All totals are computed as:
+//
+//     servingsEaten = amount / servingSize
+//     total         = perServing * servingsEaten
 // ====================================================
 
 import React, { useState, useCallback } from "react";
@@ -40,10 +52,26 @@ import {
 // Helper: format number with 1 decimal place
 const format1 = (v: number) => v.toFixed(1);
 
+// Helper: format amount in ml/g: 2360 → "2360", 12.345 → "12.3"
+function formatAmountUnit(v: number): string {
+  if (!Number.isFinite(v)) return "";
+  const abs = Math.abs(v);
+  if (abs >= 10) return v.toFixed(0); // use integer for larger amounts
+  return v.toFixed(1); // keep 1 decimal place for smaller amounts
+}
+
+// Helper: format servings: 4.23 → "4.2 servings", 1 → "1 serving"
+function formatServings(s: number): string {
+  if (!Number.isFinite(s)) return "";
+  const rounded = s >= 10 ? Number(s.toFixed(0)) : Number(s.toFixed(1));
+  const label = rounded === 1 ? "serving" : "servings";
+  return `${rounded} ${label}`;
+}
+
 // Helper: format "YYYY-MM-DD" into a nicer label
 function formatDateLabel(dateStr: string, todayStr: string): string {
   if (dateStr === todayStr) return "Today";
-  // Very simple formatting: keep YYYY-MM-DD
+  // For non-today dates we just show YYYY-MM-DD
   return dateStr;
 }
 
@@ -71,41 +99,59 @@ export default function TodayLogScreen() {
   const [entries, setEntries] = useState<FoodLogEntry[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
 
+  // Compute how many servings this entry represents
+  const computeServings = (entry: FoodLogEntry): number => {
+    const amountNum = Number(entry.amount ?? "0");
+    const servingSizeNum = Number(entry.servingSize ?? 0);
+
+    if (servingSizeNum > 0 && amountNum > 0) {
+      return amountNum / servingSizeNum;
+    }
+
+    // Fallback: for legacy rows without servingSize, treat `amount`
+    // as "number of servings"
+    const amtAsServings = Number(entry.amount ?? "1");
+    if (Number.isFinite(amtAsServings) && amtAsServings > 0) {
+      return amtAsServings;
+    }
+
+    return 1;
+  };
+
   // ====================================================
   // loadForDate()
   //
   // Loads logs from SQLite for the given YYYY-MM-DD date
   // and computes the Daily Summary values in a single pass.
   // ====================================================
-  const loadForDate = useCallback((date: string) => {
-    const logs = getLogsForDate(date);
-    setEntries(logs);
+  const loadForDate = useCallback(
+    (date: string) => {
+      const logs = getLogsForDate(date);
+      setEntries(logs);
 
-    const totals = logs.reduce<DailySummary>(
-      (acc, entry) => {
-        // amount = how many servings the user ate
-        const amt = Number(entry.amount ?? "1");
-        const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 1;
+      const totals = logs.reduce<DailySummary>(
+        (acc, entry) => {
+          const servings = computeServings(entry);
 
-        // Per-serving nutrition values from USDA
-        const perCal = entry.calories ?? 0;
-        const perP = entry.protein ?? 0;
-        const perF = entry.fat ?? 0;
-        const perC = entry.carbs ?? 0;
+          const perCal = entry.calories ?? 0;
+          const perP = entry.protein ?? 0;
+          const perF = entry.fat ?? 0;
+          const perC = entry.carbs ?? 0;
 
-        // Total contribution for this log row
-        acc.calories += perCal * safeAmt;
-        acc.protein += perP * safeAmt;
-        acc.fat += perF * safeAmt;
-        acc.carbs += perC * safeAmt;
+          acc.calories += perCal * servings;
+          acc.protein += perP * servings;
+          acc.fat += perF * servings;
+          acc.carbs += perC * servings;
 
-        return acc;
-      },
-      { calories: 0, protein: 0, fat: 0, carbs: 0 }
-    );
+          return acc;
+        },
+        { calories: 0, protein: 0, fat: 0, carbs: 0 }
+      );
 
-    setSummary(totals);
-  }, []);
+      setSummary(totals);
+    },
+    [] // computeServings is stable, no need to add it to deps
+  );
 
   // ====================================================
   // Auto-refresh on tab focus
@@ -227,26 +273,27 @@ export default function TodayLogScreen() {
             Math.random().toString()
           }
           renderItem={({ item }) => {
-            const amtRaw = Number(item.amount ?? "1");
-            const amountNum =
-              Number.isFinite(amtRaw) && amtRaw > 0 ? amtRaw : 1;
+            const amountNum = Number(item.amount ?? "0");
+            const servingSizeNum = Number(item.servingSize ?? 0);
+            const servings = computeServings(item);
 
-            // We interpret "amount" as **number of servings**,
-            // not as grams / ml. So we show e.g. "2 servings".
-            const servingsLabel =
-              amountNum === 1 ? "1 serving" : `${amountNum} servings`;
+            // Amount line: always show as ml / g
+            const unit = item.servingUnit || "";
+            const amountLabel =
+              amountNum > 0 && unit
+                ? `${formatAmountUnit(amountNum)} ${unit}`
+                : formatAmountUnit(amountNum);
 
-            // Per-serving values
+            // Totals for this row (per-serving × servings)
             const perCal = item.calories ?? 0;
             const perP = item.protein ?? 0;
             const perF = item.fat ?? 0;
             const perC = item.carbs ?? 0;
 
-            // Totals for this row
-            const totalCal = perCal * amountNum;
-            const totalP = perP * amountNum;
-            const totalF = perF * amountNum;
-            const totalC = perC * amountNum;
+            const totalCal = perCal * servings;
+            const totalP = perP * servings;
+            const totalF = perF * servings;
+            const totalC = perC * servings;
 
             return (
               <TouchableOpacity
@@ -271,10 +318,17 @@ export default function TodayLogScreen() {
                     {item.description}
                   </ThemedText>
 
-                  {/* Servings label */}
+                  {/* Amount in ml/g */}
                   <ThemedText style={styles.itemLine}>
-                    Amount: {servingsLabel}
+                    Amount: {amountLabel}
                   </ThemedText>
+
+                  {/* Servings line (hint) */}
+                  {servings > 0 && servingSizeNum > 0 && (
+                    <ThemedText style={styles.servingsHint}>
+                      {formatServings(servings)}
+                    </ThemedText>
+                  )}
 
                   {/* Calories (total) */}
                   <ThemedText style={styles.itemLine}>
@@ -355,5 +409,10 @@ const styles = StyleSheet.create({
   },
   itemTitle: { fontSize: 16 },
   itemLine: { fontSize: 14 },
+  servingsHint: {
+    fontSize: 13,
+    color: "#666",
+    marginBottom: 2,
+  },
   time: { fontSize: 12, color: "#999", marginTop: 4 },
 });

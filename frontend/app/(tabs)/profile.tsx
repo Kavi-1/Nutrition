@@ -28,6 +28,7 @@ export default function ProfileScreen() {
   const [profile, setProfile] = useState<HealthProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isEditing, setIsEditing] = useState(false);
 
   // load profile whenever token changes
   useEffect(() => {
@@ -50,6 +51,38 @@ export default function ProfileScreen() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const saveProfile = async () => {
+    if (!profile) return;
+
+    // require all fields except allergies and diet pref.
+    if (profile.age == null || profile.height == null || profile.weight == null || !profile.gender ||
+      !profile.allergies) {
+      Alert.alert('All fields are required!');
+      return;
+    }
+
+    // age must be greater than 0
+    if (profile.age <= 0) {
+      Alert.alert('Age must be greater than 0!');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await api.updateMyProfile(profile);
+      setIsEditing(false);
+      Alert.alert('Success', 'Profile updated!');
+    } catch (err: any) {
+      Alert.alert('Error', 'Failed to update profile');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateField = (field: keyof HealthProfile, value: any) => {
+    if (profile) setProfile({ ...profile, [field]: value });
   };
 
   const handleAuth = async () => {
@@ -193,6 +226,16 @@ export default function ProfileScreen() {
         {/* Header */}
         <ThemedView style={styles.header}>
           <ThemedText type="title" style={styles.title}>Health Profile</ThemedText>
+          {!loading && !error && profile && (
+            <TouchableOpacity
+              onPress={isEditing ? saveProfile : () => setIsEditing(true)}
+              style={isEditing ? styles.saveBtn : styles.editBtn}
+            >
+              <ThemedText style={isEditing ? styles.saveBtnText : styles.editBtnText}>
+                {isEditing ? 'Save' : 'Edit'}
+              </ThemedText>
+            </TouchableOpacity>
+          )}
         </ThemedView>
 
         {loading && (
@@ -213,16 +256,37 @@ export default function ProfileScreen() {
           <>
             {/* Basic Profile Info */}
             <ThemedView style={styles.section}>
-              <ProfileItem icon="number" label="Age" value={profile.age?.toString() ?? 'Not set'} />
-              <ProfileItem icon="arrow.up.and.down" label="Height" value={profile.height?.toString() ?? 'Not set'} />
-              <ProfileItem icon="scalemass" label="Weight" value={profile.weight?.toString() ?? 'Not set'} />
-              <ProfileItem icon="person" label="Gender" value={profile.gender ?? 'Not set'} />
+              <EditableItem icon="number" label="Age" value={profile.age?.toString() ?? ''}
+                isEditing={isEditing} onChange={(v: string) => {
+                  const num = parseInt(v);
+                  updateField('age', v === '' ? undefined : isNaN(num) ? undefined : num);
+                }} keyboardType="numeric" />
+              <EditableItem icon="arrow.up.and.down" label="Height" value={profile.height?.toString() ?? ''}
+                isEditing={isEditing} onChange={(v: string) => {
+                  const num = parseFloat(v);
+                  updateField('height', v === '' ? undefined : isNaN(num) ? undefined : num);
+                }} keyboardType="numeric" />
+              <EditableItem icon="scalemass" label="Weight" value={profile.weight?.toString() ?? ''}
+                isEditing={isEditing} onChange={(v: string) => {
+                  const num = parseFloat(v);
+                  updateField('weight', v === '' ? undefined : isNaN(num) ? undefined : num);
+                }} keyboardType="numeric" />
+              <EditableItem icon="person" label="Gender" value={profile.gender ?? ''}
+                isEditing={isEditing} onChange={(v: string) => updateField('gender', v)} />
             </ThemedView>
 
             {/* Allergies */}
             <ThemedView style={styles.section}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>Allergies</ThemedText>
-              {profile.allergies && profile.allergies.length > 0 ? (
+              {isEditing ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="Comma separated"
+                  placeholderTextColor="#8E8E93"
+                  value={profile.allergies?.join(', ') ?? ''}
+                  onChangeText={(t) => updateField('allergies', t.split(',').map(s => s.trim()).filter(Boolean))}
+                />
+              ) : profile.allergies && profile.allergies.length > 0 ? (
                 profile.allergies.map((allergy, index) => (
                   <ThemedView key={index} style={styles.listItem}>
                     <IconSymbol size={20} name="exclamationmark.triangle.fill" color="#FF3B30" />
@@ -237,7 +301,15 @@ export default function ProfileScreen() {
             {/* Dietary Preferences */}
             <ThemedView style={styles.section}>
               <ThemedText type="subtitle" style={styles.sectionTitle}>Dietary Preferences</ThemedText>
-              {profile.dietaryPreference ? (
+              {isEditing ? (
+                <TextInput
+                  style={styles.input}
+                  placeholder="e.g., Vegetarian"
+                  placeholderTextColor="#8E8E93"
+                  value={profile.dietaryPreference ?? ''}
+                  onChangeText={(t) => updateField('dietaryPreference', t)}
+                />
+              ) : profile.dietaryPreference ? (
                 <ThemedText style={styles.listText}>{profile.dietaryPreference}</ThemedText>
               ) : (
                 <ThemedText style={styles.emptyText}>No dietary preferences</ThemedText>
@@ -269,14 +341,39 @@ export default function ProfileScreen() {
   );
 }
 
-function ProfileItem({ icon, label, value }: { icon: any; label: string; value: string }) {
+function EditableItem({
+  icon,
+  label,
+  value,
+  isEditing,
+  onChange,
+  keyboardType = 'default'
+}: {
+  icon: any;
+  label: string;
+  value: string;
+  isEditing: boolean;
+  onChange: (v: string) => void;
+  keyboardType?: 'default' | 'numeric';
+}) {
   return (
     <ThemedView style={styles.profileItem}>
       <ThemedView style={styles.itemLeft}>
         <IconSymbol size={24} name={icon as any} color="#007AFF" />
         <ThemedText type="defaultSemiBold" style={styles.label}>{label}</ThemedText>
       </ThemedView>
-      <ThemedText style={styles.value}>{value}</ThemedText>
+      {isEditing ? (
+        <TextInput
+          style={styles.fieldInput}
+          value={value}
+          onChangeText={onChange}
+          keyboardType={keyboardType}
+          placeholder={label}
+          placeholderTextColor="#8E8E93"
+        />
+      ) : (
+        <ThemedText style={styles.value}>{value || 'Not set'}</ThemedText>
+      )}
     </ThemedView>
   );
 }
@@ -422,5 +519,43 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: 10,
     textAlign: 'center',
+  },
+  editBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderWidth: 1,
+    borderColor: '#000000ff',
+    borderRadius: 50,
+    marginTop: 10,
+  },
+  saveBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: '#00bb70ff',
+    borderWidth: 1,
+    borderColor: '#00bb70ff',
+    borderRadius: 50,
+    marginTop: 10,
+  },
+  editBtnText: {
+    color: '#0b0b0bff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  saveBtnText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  fieldInput: {
+    minWidth: 100,
+    height: 40,
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 6,
+    paddingHorizontal: 10,
+    fontSize: 16,
+    backgroundColor: '#F9F9F9',
+    textAlign: 'right',
   },
 });
