@@ -31,6 +31,7 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { router } from "expo-router";
+import api from "../services/api";
 
 /**
  * LogScreen Component
@@ -77,35 +78,14 @@ export default function LogScreen() {
     setDebug(null);
 
     try {
-      // Build backend URL
-      const url = `http://localhost:8080/api/nutrition/food?name=${encodeURIComponent(
-        name
-      )}`;
+      // use api service instead of raw fetch
+      const data = await api.getFood(name);
 
-      // Send API request
-      const res = await fetch(url);
-      const text = await res.text();
-
-      // Provide short debug info
-      setDebug(`status=${res.status}, snippet=${text.slice(0, 200)}...`);
-
-      // Non-200 response → throw
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}`);
-      }
-
-      // Try to parse JSON
-      let parsed: any;
-      try {
-        parsed = JSON.parse(text);
-      } catch {
-        parsed = text; // Very rare fallback
-      }
-
-      setResult(parsed);
+      setResult(data);
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "Unknown error");
+      setDebug(`Error: ${e?.response?.status || 'Network error'}`);
     } finally {
       setLoading(false);
     }
