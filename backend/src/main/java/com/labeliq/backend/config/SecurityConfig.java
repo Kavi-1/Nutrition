@@ -74,19 +74,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(List.of("*"));     // allow ALL ORIGINS
+        config.setAllowedMethods(List.of("*"));     // allow ALL METHODS
+        config.setAllowedHeaders(List.of("*"));     // allow ALL HEADERS
+        config.setAllowCredentials(false);          // must be false when using "*"
 
-        // Allow local frontend origins
-        config.setAllowedOrigins(List.of(
-                "http://localhost:8081", // Expo Web dev server
-                "http://localhost:8082", // Alternative Expo port
-                "http://localhost:19006" // Expo Go / Metro bundler
-        ));
-
-        config.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "OPTIONS"));
-        config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(true);
-
-        // Apply CORS config to all backend routes
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
 
