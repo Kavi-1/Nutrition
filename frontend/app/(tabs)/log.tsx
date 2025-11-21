@@ -32,6 +32,7 @@ import {
 } from "react-native";
 import { router } from "expo-router";
 import api from "../services/api";
+import BarcodeScanner from "../../components/BarcodeScanner";
 
 /**
  * LogScreen Component
@@ -52,21 +53,9 @@ export default function LogScreen() {
   // Debug text showing HTTP status + first 200 characters of response
   const [debug, setDebug] = useState<string | null>(null);
 
-  /**
-   * handleSearch()
-   *
-   * Sends a request to our backend:
-   *   GET http://localhost:8080/api/nutrition/food?name=<query>
-   *
-   * The backend then calls the USDA FDC API.
-   *
-   * This function:
-   *   1. Resets local UI state
-   *   2. Performs fetch()
-   *   3. Captures debug text
-   *   4. Parses JSON (with fallback)
-   *   5. Stores parsed result for UI rendering
-   */
+  const [scannerVisible, setScannerVisible] = useState(false);
+
+  // manual search
   const handleSearch = async () => {
     const name = query.trim();
     if (!name) return;
@@ -80,8 +69,32 @@ export default function LogScreen() {
     try {
       // use api service instead of raw fetch
       const data = await api.getFood(name);
-
       setResult(data);
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message ?? "Unknown error");
+      setDebug(`Error: ${e?.response?.status || 'Network error'}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // barcode scan with camera
+  const handleBarcodeScan = async (barcode: string) => {
+    setQuery(barcode);
+    setLoading(true);
+    setError(null);
+    setResult(null);
+    setDebug(null);
+
+    try {
+      const data = await api.getFoodByBarcode(barcode);
+
+      if (data) {
+        setResult({ foods: [data], totalHits: 1 });
+      } else {
+        setError("Barcode not found in database");
+      }
     } catch (e: any) {
       console.error(e);
       setError(e?.message ?? "Unknown error");
@@ -111,12 +124,20 @@ export default function LogScreen() {
       <View style={styles.row}>
         <TextInput
           style={styles.input}
-          placeholder="e.g. banana"
+          placeholder="Search food by name"
           value={query}
           onChangeText={setQuery}
         />
         <Button title="Search" onPress={handleSearch} />
       </View>
+
+      {/* Barcode scan button */}
+      <TouchableOpacity
+        style={styles.scanButton}
+        onPress={() => setScannerVisible(true)}
+      >
+        <Text style={styles.scanButtonText}>Scan Barcode</Text>
+      </TouchableOpacity>
 
       {/* Loading state */}
       {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
@@ -168,6 +189,13 @@ export default function LogScreen() {
           <Text selectable>{JSON.stringify(result, null, 2)}</Text>
         </ScrollView>
       )}
+
+      {/* Barcode Scanner Modal */}
+      <BarcodeScanner
+        visible={scannerVisible}
+        onClose={() => setScannerVisible(false)}
+        onScan={handleBarcodeScan}
+      />
     </View>
   );
 }
@@ -193,6 +221,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     marginRight: 8,
     height: 44,
+  },
+
+  scanButton: {
+    backgroundColor: "#00bb70ff",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginBottom: 12,
+  },
+
+  scanButtonText: {
+    color: "white",
+    fontSize: 16,
+    fontWeight: "600",
   },
 
   error: { color: "red", marginTop: 8 },

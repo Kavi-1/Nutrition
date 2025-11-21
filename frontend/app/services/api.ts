@@ -92,6 +92,12 @@ class ApiService {
         const res = await this.client.put<HealthProfile>('/api/profile/me', profile);
         return res.data;
     }
+
+    // barcode lookup 
+    async getFoodByBarcode(barcode: string): Promise<any> {
+        const res = await this.client.get('/api/nutrition/barcode', { params: { barcode } });
+        return res.data;
+    }
 }
 
 const api = new ApiService();
