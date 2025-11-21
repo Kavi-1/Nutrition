@@ -27,7 +27,7 @@ public class User implements UserDetails {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private Role role = Role.USER;
-    private boolean enabled;
+    private Boolean enabled;
 
     @Override public Collection<? extends GrantedAuthority> getAuthorities() {
         return List.of((GrantedAuthority) () -> "ROLE_" + role.name());

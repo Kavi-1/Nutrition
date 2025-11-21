@@ -47,12 +47,18 @@ public class AuthService {
     }
 
     public AuthResponse login(LoginRequest request) {
-        authManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getUsername(),
-                        request.getPassword()
-                )
-        );
+        try {
+            authManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(
+                            request.getUsername(),
+                            request.getPassword()
+                    )
+            );
+        } catch (Exception e) {
+            System.out.println("Authentication failed: " + e.getMessage());
+            e.printStackTrace();
+            throw e;
+        }
         User user = userRepository.findByUsername(request.getUsername())
                 .orElseThrow(() -> new RuntimeException("User not found"));
         String token = jwtService.generateToken(user);
