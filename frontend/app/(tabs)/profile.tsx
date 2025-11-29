@@ -3,41 +3,22 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { useState, useEffect } from 'react';
+import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { resetLogDb } from '../../db/logDb';
 import api, { HealthProfile } from '../services/api';
 
-// test data
-const test = {
-  age: 21,
-  height: '175',
-  weight: '150',
-  gender: 'Male',
-  allergies: ["asjkdf", "sdjfshodf"],
-  dietaryPreferences: "Vegetarian"
-};
-
 export default function ProfileScreen() {
-  // auth state
-  const [token, setToken] = useState<string | null>(null);
-  const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [authError, setAuthError] = useState<string | null>(null);
-
   // profile state
   const [profile, setProfile] = useState<HealthProfile | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isEditing, setIsEditing] = useState(false);
 
-  // load profile whenever token changes
+  // load profile
   useEffect(() => {
-    if (token) {
-      loadProfile();
-    } else {
-      setProfile(null);
-    }
-  }, [token]);
+    loadProfile();
+  }, []);
 
   const loadProfile = async () => {
     setLoading(true);
@@ -85,37 +66,6 @@ export default function ProfileScreen() {
     if (profile) setProfile({ ...profile, [field]: value });
   };
 
-  const handleAuth = async () => {
-    if (!username || !password) {
-      setAuthError('Please enter username and password');
-      return;
-    }
-
-    setLoading(true);
-    setAuthError(null);
-    try {
-      const response = isLogin
-        ? await api.login({ username, password })
-        : await api.register({ username, password });
-
-      const { token: newToken } = response;
-      api.setToken(newToken);
-      setToken(newToken);
-      setUsername('');
-      setPassword('');
-
-      // If registering, give backend time to create profile
-      if (!isLogin) {
-        await new Promise(resolve => setTimeout(resolve, 500));
-      }
-    } catch (err: any) {
-      console.error('Auth error:', err);
-      setAuthError(err.response?.data?.message || err.message || `${isLogin ? 'Login' : 'Registration'} failed`);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const handleLogout = () => {
     Alert.alert(
       "Logout",
@@ -125,10 +75,11 @@ export default function ProfileScreen() {
         {
           text: "Logout",
           style: "destructive",
-          onPress: () => {
+          onPress: async () => {
+            await AsyncStorage.removeItem('authToken');
             api.clearToken();
-            setToken(null);
             setProfile(null);
+            router.replace('/login');
           },
         },
       ]
@@ -153,73 +104,16 @@ export default function ProfileScreen() {
     );
   };
 
-  // if not authenticated, show login/register form
-  if (!token) {
+  if (loading && !profile) {
     return (
-      <ScrollView style={styles.container}>
+      <ThemedView style={styles.container}>
         <ThemedView style={styles.content}>
-          <ThemedView style={styles.authContainer}>
-            <ThemedText type="title" style={styles.authTitle}>
-              {isLogin ? 'Login' : 'Register'}
-            </ThemedText>
-
-            <TextInput
-              style={styles.input}
-              placeholder="Username"
-              placeholderTextColor="#8E8E93"
-              value={username}
-              onChangeText={setUsername}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            <TextInput
-              style={styles.input}
-              placeholder="Password"
-              placeholderTextColor="#8E8E93"
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-
-            {authError && (
-              <ThemedText style={styles.errorText}>{authError}</ThemedText>
-            )}
-
-            <TouchableOpacity
-              style={[styles.authButton, loading && styles.authButtonDisabled]}
-              onPress={handleAuth}
-              disabled={loading}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" />
-              ) : (
-                <ThemedText style={styles.authButtonText}>
-                  {isLogin ? 'Login' : 'Register'}
-                </ThemedText>
-              )}
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.switchAuthButton}
-              onPress={() => {
-                setIsLogin(!isLogin);
-                setAuthError(null);
-              }}
-            >
-              <ThemedText style={styles.switchAuthText}>
-                {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
-              </ThemedText>
-            </TouchableOpacity>
-          </ThemedView>
+          <ActivityIndicator size="large" color="#40916c" />
         </ThemedView>
-      </ScrollView>
+      </ThemedView>
     );
   }
 
-  // else, show profile 
   return (
     <ScrollView style={styles.container}>
       <ThemedView style={styles.content}>
