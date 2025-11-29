@@ -36,14 +36,18 @@ export default function RootLayout() {
   useEffect(() => {
     if (!isReady) return;
 
-    const inAuthGroup = segments[0] === '(tabs)';
+    const currentSegment = segments[0];
     const token = api.getToken();
 
-    if (!token && inAuthGroup) {
-      // user not logged in but trying to access app
+    // allow these routes
+    const protectedRoutes = ['(tabs)', 'food', 'log'];
+    const isProtectedRoute = protectedRoutes.includes(currentSegment);
+
+    if (!token && isProtectedRoute) {
+      // User not logged in but trying to access protected routes
       router.replace('/login');
-    } else if (token && !inAuthGroup && segments[0] !== 'modal') {
-      // user logged in on login screen
+    } else if (token && currentSegment === 'login') {
+      // User logged in on login screen
       router.replace('/(tabs)');
     }
   }, [isReady, segments]);
