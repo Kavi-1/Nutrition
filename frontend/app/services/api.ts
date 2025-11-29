@@ -54,6 +54,14 @@ class ApiService {
         this.client.defaults.headers.common['Authorization'] = `Bearer ${token}`;
     }
 
+    getToken(): string | null {
+        const authHeader = this.client.defaults.headers.common['Authorization'];
+        if (typeof authHeader === 'string' && authHeader.startsWith('Bearer ')) {
+            return authHeader.substring(7);
+        }
+        return null;
+    }
+
     clearToken() {
         delete this.client.defaults.headers.common['Authorization'];
     }

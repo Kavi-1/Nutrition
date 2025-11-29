@@ -40,16 +40,16 @@ export default function RootLayout() {
     const token = api.getToken();
 
     if (!token && inAuthGroup) {
-      // User is not logged in but trying to access protected routes
+      // user not logged in but trying to access app
       router.replace('/login');
     } else if (token && !inAuthGroup && segments[0] !== 'modal') {
-      // User is logged in but on login screen
+      // user logged in on login screen
       router.replace('/(tabs)');
     }
   }, [isReady, segments]);
 
   if (!isReady) {
-    return null; // Or a loading screen
+    return null;
   }
 
   return (
