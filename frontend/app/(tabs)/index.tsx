@@ -1,88 +1,35 @@
-// app/(tabs)/index.tsx
-// ====================================================
-// "Today's Log" Screen (Home tab)
-//
-// Displays food entries recorded on a given date,
-// pulled from local SQLite storage. Also computes a
-// Daily Summary (total calories + macro totals).
-//
-// Default date is "today", but the user can move
-// backward / forward by one day using the ⟨ ⟩ buttons.
-//
-// This screen refreshes automatically whenever the tab is
-// focused — ensuring newly added foods (from /food/add)
-// appear instantly without requiring manual reload.
-//
-// Additional features:
-//   • Tap an entry → open Log Details / Edit screen
-//   • Long-press an entry → delete it from the log
-//
-// IMPORTANT:
-//   We now treat DB fields as:
-//     - calories/protein/fat/carbs  = **per serving**
-//     - servingSize + servingUnit   = size of 1 serving (ml / g)
-//     - amount                      = what the user actually ate
-//                                    in the same unit as servingSize
-//
-//   All totals are computed as:
-//
-//     servingsEaten = amount / servingSize
-//     total         = perServing * servingsEaten
-// ====================================================
-
 import React, { useState, useCallback } from "react";
 import { router, useFocusEffect } from "expo-router";
-import {
-  StyleSheet,
-  FlatList,
-  View,
-  TouchableOpacity,
-  Alert,
-} from "react-native";
+import { StyleSheet, ScrollView, View, TouchableOpacity, Alert, Text, ActivityIndicator } from "react-native";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { LinearGradient } from "expo-linear-gradient";
+import { useAppFonts } from "@/utils/fonts";
+import { getLogsForDate, deleteLogById, type FoodLogEntry } from "../../db/logDb";
 
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
-
-import {
-  getLogsForDate,
-  deleteLogById,
-  type FoodLogEntry,
-} from "../../db/logDb";
-
-// Helper: format number with 1 decimal place
 const format1 = (v: number) => v.toFixed(1);
 
-// Helper: format amount in ml/g: 2360 → "2360", 12.345 → "12.3"
-function formatAmountUnit(v: number): string {
+const formatAmountUnit = (v: number): string => {
   if (!Number.isFinite(v)) return "";
-  const abs = Math.abs(v);
-  if (abs >= 10) return v.toFixed(0); // use integer for larger amounts
-  return v.toFixed(1); // keep 1 decimal place for smaller amounts
-}
+  return Math.abs(v) >= 10 ? v.toFixed(0) : v.toFixed(1);
+};
 
-// Helper: format servings: 4.23 → "4.2 servings", 1 → "1 serving"
-function formatServings(s: number): string {
+const formatServings = (s: number): string => {
   if (!Number.isFinite(s)) return "";
   const rounded = s >= 10 ? Number(s.toFixed(0)) : Number(s.toFixed(1));
-  const label = rounded === 1 ? "serving" : "servings";
-  return `${rounded} ${label}`;
-}
+  return `${rounded} ${rounded === 1 ? "serving" : "servings"}`;
+};
 
-// Helper: format "YYYY-MM-DD" into a nicer label
-function formatDateLabel(dateStr: string, todayStr: string): string {
-  if (dateStr === todayStr) return "Today";
-  // For non-today dates we just show YYYY-MM-DD
-  return dateStr;
-}
-
-// Helper: shift "YYYY-MM-DD" by deltaDays
-function shiftDate(dateStr: string, deltaDays: number): string {
+const shiftDate = (dateStr: string, deltaDays: number): string => {
   const d = new Date(dateStr + "T00:00:00");
   d.setDate(d.getDate() + deltaDays);
   return d.toISOString().slice(0, 10);
-}
+};
 
-// Shape of the aggregated daily macro summary
+const getTodayLocal = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
 type DailySummary = {
   calories: number;
   protein: number;
@@ -90,91 +37,52 @@ type DailySummary = {
   carbs: number;
 };
 
+const computeServings = (entry: FoodLogEntry): number => {
+  const amountNum = Number(entry.amount ?? "0");
+  const servingSizeNum = Number(entry.servingSize ?? 0);
+
+  if (servingSizeNum > 0 && amountNum > 0) {
+    return amountNum / servingSizeNum;
+  }
+
+  const amtAsServings = Number(entry.amount ?? "1");
+  return Number.isFinite(amtAsServings) && amtAsServings > 0 ? amtAsServings : 1;
+};
+
 export default function TodayLogScreen() {
-  const todayStr = new Date().toISOString().slice(0, 10);
-
-  // Current date being viewed (defaults to "today")
+  const [fontsLoaded] = useAppFonts();
+  const todayStr = getTodayLocal();
   const [currentDate, setCurrentDate] = useState<string>(todayStr);
-
   const [entries, setEntries] = useState<FoodLogEntry[]>([]);
   const [summary, setSummary] = useState<DailySummary | null>(null);
 
-  // Compute how many servings this entry represents
-  const computeServings = (entry: FoodLogEntry): number => {
-    const amountNum = Number(entry.amount ?? "0");
-    const servingSizeNum = Number(entry.servingSize ?? 0);
+  const loadForDate = useCallback((date: string) => {
+    const logs = getLogsForDate(date);
+    setEntries(logs);
 
-    if (servingSizeNum > 0 && amountNum > 0) {
-      return amountNum / servingSizeNum;
-    }
+    const totals = logs.reduce<DailySummary>(
+      (acc, entry) => {
+        const servings = computeServings(entry);
+        acc.calories += (entry.calories ?? 0) * servings;
+        acc.protein += (entry.protein ?? 0) * servings;
+        acc.fat += (entry.fat ?? 0) * servings;
+        acc.carbs += (entry.carbs ?? 0) * servings;
+        return acc;
+      },
+      { calories: 0, protein: 0, fat: 0, carbs: 0 }
+    );
 
-    // Fallback: for legacy rows without servingSize, treat `amount`
-    // as "number of servings"
-    const amtAsServings = Number(entry.amount ?? "1");
-    if (Number.isFinite(amtAsServings) && amtAsServings > 0) {
-      return amtAsServings;
-    }
+    setSummary(totals);
+  }, []);
 
-    return 1;
-  };
-
-  // ====================================================
-  // loadForDate()
-  //
-  // Loads logs from SQLite for the given YYYY-MM-DD date
-  // and computes the Daily Summary values in a single pass.
-  // ====================================================
-  const loadForDate = useCallback(
-    (date: string) => {
-      const logs = getLogsForDate(date);
-      setEntries(logs);
-
-      const totals = logs.reduce<DailySummary>(
-        (acc, entry) => {
-          const servings = computeServings(entry);
-
-          const perCal = entry.calories ?? 0;
-          const perP = entry.protein ?? 0;
-          const perF = entry.fat ?? 0;
-          const perC = entry.carbs ?? 0;
-
-          acc.calories += perCal * servings;
-          acc.protein += perP * servings;
-          acc.fat += perF * servings;
-          acc.carbs += perC * servings;
-
-          return acc;
-        },
-        { calories: 0, protein: 0, fat: 0, carbs: 0 }
-      );
-
-      setSummary(totals);
-    },
-    [] // computeServings is stable, no need to add it to deps
-  );
-
-  // ====================================================
-  // Auto-refresh on tab focus
-  //
-  // Whenever the tab becomes active OR currentDate changes,
-  // we reload logs for that date.
-  // ====================================================
   useFocusEffect(
     useCallback(() => {
       loadForDate(currentDate);
     }, [currentDate, loadForDate])
   );
 
-  // ====================================================
-  // handleLongPress()
-  //
-  // Long-pressing an entry triggers a confirmation dialog.
-  // If confirmed, the entry is deleted from SQLite and the
-  // UI refreshes immediately for the same date.
-  // ====================================================
   const handleLongPress = (entry: FoodLogEntry) => {
-    const id = entry.id;
-    if (!id) return;
+    if (!entry.id) return;
 
     Alert.alert(
       "Delete entry",
@@ -185,7 +93,7 @@ export default function TodayLogScreen() {
           text: "Delete",
           style: "destructive",
           onPress: () => {
-            deleteLogById(id);
+            deleteLogById(entry.id!);
             loadForDate(currentDate);
           },
         },
@@ -193,169 +101,207 @@ export default function TodayLogScreen() {
     );
   };
 
-  // Move to previous / next day
-  const goPrevDay = () => {
-    setCurrentDate((prev) => shiftDate(prev, -1));
-  };
+  const goPrevDay = () => setCurrentDate((prev) => shiftDate(prev, -1));
+  const goNextDay = () => setCurrentDate((prev) => prev >= todayStr ? prev : shiftDate(prev, 1));
 
-  const goNextDay = () => {
-    setCurrentDate((prev) => {
-      // Don't go beyond "today"
-      if (prev >= todayStr) return prev;
-      return shiftDate(prev, 1);
-    });
-  };
-
-  const dateLabel = formatDateLabel(currentDate, todayStr);
+  if (!fontsLoaded) {
+    return (
+      <LinearGradient
+        colors={['#e9ffedff', '#d8f3dcff', '#c7f0d1ff']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.container}
+      >
+        <ActivityIndicator size="large" color="#40916c" />
+      </LinearGradient>
+    );
+  }
 
   return (
-    <ThemedView style={styles.container}>
-      {/* Screen title */}
-      <ThemedText type="title" style={styles.title}>
-        Today&apos;s Log
-      </ThemedText>
+    <LinearGradient
+      colors={['#e9ffedff', '#d8f3dcff', '#d8eff3ff']}
+      start={{ x: -1, y: 0.2 }}
+      end={{ x: 0.2, y: 1 }}
+      style={styles.container}
+    >
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Header Card */}
+        <View style={styles.headerCard}>
+          <Text style={styles.title}>Daily Log</Text>
 
-      {/* Date navigation row */}
-      <View style={styles.dateRow}>
-        <TouchableOpacity onPress={goPrevDay} style={styles.dateButton}>
-          <ThemedText style={styles.dateButtonText}>⟨</ThemedText>
-        </TouchableOpacity>
+          {/* Date navigation row */}
+          <View style={styles.dateRow}>
+            <TouchableOpacity onPress={goPrevDay} style={styles.dateButton}>
+              <IconSymbol name="chevron.left" size={20} color="#40916c" />
+            </TouchableOpacity>
 
-        <ThemedText style={styles.dateLabel}>
-          {dateLabel} ({currentDate})
-        </ThemedText>
+            <Text style={styles.dateLabel}>
+              {currentDate} {currentDate === todayStr && "(Today)"}
+            </Text>
 
-        <TouchableOpacity
-          onPress={goNextDay}
-          style={styles.dateButton}
-          disabled={currentDate >= todayStr}
-        >
-          <ThemedText
-            style={[
-              styles.dateButtonText,
-              currentDate >= todayStr && styles.dateButtonDisabled,
-            ]}
-          >
-            ⟩
-          </ThemedText>
-        </TouchableOpacity>
-      </View>
-
-      {/* Daily Summary (only shown when entries exist) */}
-      {entries.length > 0 && summary && (
-        <View style={styles.summaryCard}>
-          <ThemedText type="subtitle" style={styles.summaryTitle}>
-            Daily Summary
-          </ThemedText>
-
-          <ThemedText style={styles.summaryLine}>
-            Total calories: {Math.round(summary.calories)} kcal
-          </ThemedText>
-
-          <ThemedText style={styles.summaryLine}>
-            Protein: {format1(summary.protein)} g • Fat:{" "}
-            {format1(summary.fat)} g • Carbs: {format1(summary.carbs)} g
-          </ThemedText>
+            <TouchableOpacity
+              onPress={goNextDay}
+              style={styles.dateButton}
+              disabled={currentDate >= todayStr}
+            >
+              <IconSymbol
+                name="chevron.right"
+                size={20}
+                color={currentDate >= todayStr ? "#95a99c" : "#40916c"}
+              />
+            </TouchableOpacity>
+          </View>
         </View>
-      )}
 
-      {/* No entries case */}
-      {entries.length === 0 ? (
-        <ThemedText style={styles.empty}>
-          No entries logged for this date yet.
-        </ThemedText>
-      ) : (
-        <FlatList
-          data={entries}
-          keyExtractor={(item) =>
-            item.id?.toString() ??
-            item.createdAt ??
-            Math.random().toString()
-          }
-          renderItem={({ item }) => {
-            const amountNum = Number(item.amount ?? "0");
-            const servingSizeNum = Number(item.servingSize ?? 0);
-            const servings = computeServings(item);
+        {/* Daily Summary (only shown when entries exist) */}
+        {entries.length > 0 && summary && (
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryHeader}>
+              <IconSymbol name="chart.bar.fill" size={20} color="#40916c" />
+              <Text style={styles.summaryTitle}>Daily Summary</Text>
+            </View>
 
-            // Amount line: always show as ml / g
-            const unit = item.servingUnit || "";
-            const amountLabel =
-              amountNum > 0 && unit
-                ? `${formatAmountUnit(amountNum)} ${unit}`
-                : formatAmountUnit(amountNum);
+            <View style={styles.macroRow}>
+              <View style={styles.macroItem}>
+                <Text style={styles.macroValue}>{Math.round(summary.calories)}</Text>
+                <Text style={styles.macroLabel}>kcal</Text>
+              </View>
+              <View style={styles.macroItem}>
+                <Text style={styles.macroValue}>{format1(summary.protein)}</Text>
+                <Text style={styles.macroLabel}>Protein (g)</Text>
+              </View>
+              <View style={styles.macroItem}>
+                <Text style={styles.macroValue}>{format1(summary.fat)}</Text>
+                <Text style={styles.macroLabel}>Fat (g)</Text>
+              </View>
+              <View style={styles.macroItem}>
+                <Text style={styles.macroValue}>{format1(summary.carbs)}</Text>
+                <Text style={styles.macroLabel}>Carbs (g)</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
-            // Totals for this row (per-serving × servings)
-            const perCal = item.calories ?? 0;
-            const perP = item.protein ?? 0;
-            const perF = item.fat ?? 0;
-            const perC = item.carbs ?? 0;
+        {/* No entries case */}
+        {entries.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <IconSymbol name="tray" size={48} color="#95a99c" />
+            <Text style={styles.emptyText}>
+              No entries logged for this date yet.
+            </Text>
+          </View>
+        ) : (
+          <>
+            {/* Food Log Section Header */}
+            <View style={styles.sectionHeader}>
+              <IconSymbol name="list.bullet" size={20} color="#40916c" />
+              <Text style={styles.sectionTitle}>Food Log</Text>
+              <View style={styles.sectionBadge}>
+                <Text style={styles.sectionBadgeText}>{entries.length}</Text>
+              </View>
+            </View>
 
-            const totalCal = perCal * servings;
-            const totalP = perP * servings;
-            const totalF = perF * servings;
-            const totalC = perC * servings;
+            {/* Food Log Items */}
+            <View style={styles.listContent}>
+              {entries.map((item) => {
+                const amountNum = Number(item.amount ?? "0");
+                const servingSizeNum = Number(item.servingSize ?? 0);
+                const servings = computeServings(item);
 
-            return (
-              <TouchableOpacity
-                // Short press → open log details / edit screen
-                onPress={() => {
-                  router.push({
-                    pathname: "/log/edit",
-                    params: { data: JSON.stringify(item) },
-                  });
-                }}
-                // Long press → delete
-                onLongPress={() => handleLongPress(item)}
-                delayLongPress={400}
-                activeOpacity={0.7}
-              >
-                <View style={styles.item}>
-                  {/* Food name */}
-                  <ThemedText
-                    type="defaultSemiBold"
-                    style={styles.itemTitle}
+                // Amount line: always show as ml / g
+                const unit = item.servingUnit || "";
+                const amountLabel =
+                  amountNum > 0 && unit
+                    ? `${formatAmountUnit(amountNum)} ${unit}`
+                    : formatAmountUnit(amountNum);
+
+                // Totals for this row (per-serving × servings)
+                const perCal = item.calories ?? 0;
+                const perP = item.protein ?? 0;
+                const perF = item.fat ?? 0;
+                const perC = item.carbs ?? 0;
+
+                const totalCal = perCal * servings;
+                const totalP = perP * servings;
+                const totalF = perF * servings;
+                const totalC = perC * servings;
+
+                return (
+                  <TouchableOpacity
+                    key={item.id?.toString() ?? item.createdAt ?? Math.random().toString()}
+                    // Short press → open log details / edit screen
+                    onPress={() => {
+                      router.push({
+                        pathname: "/log/edit",
+                        params: { data: JSON.stringify(item) },
+                      });
+                    }}
+                    // Long press → delete
+                    onLongPress={() => handleLongPress(item)}
+                    delayLongPress={400}
+                    activeOpacity={0.7}
                   >
-                    {item.description}
-                  </ThemedText>
+                    <View style={styles.foodCard}>
+                      <View style={styles.foodHeader}>
+                        <Text style={styles.foodTitle}>{item.description}</Text>
+                        <IconSymbol name="chevron.right" size={16} color="#95a99c" />
+                      </View>
 
-                  {/* Amount in ml/g */}
-                  <ThemedText style={styles.itemLine}>
-                    Amount: {amountLabel}
-                  </ThemedText>
+                      {/* Amount and servings */}
+                      <View style={styles.foodRow}>
+                        <View style={styles.foodDetail}>
+                          <IconSymbol name="scalemass" size={16} color="#52796f" />
+                          <Text style={styles.foodDetailText}>{amountLabel}</Text>
+                        </View>
+                        {servings > 0 && servingSizeNum > 0 && (
+                          <Text style={styles.servingsText}>
+                            ({formatServings(servings)})
+                          </Text>
+                        )}
+                      </View>
 
-                  {/* Servings line (hint) */}
-                  {servings > 0 && servingSizeNum > 0 && (
-                    <ThemedText style={styles.servingsHint}>
-                      {formatServings(servings)}
-                    </ThemedText>
-                  )}
+                      {/* Nutrition info */}
+                      <View style={styles.nutritionRow}>
+                        <View style={styles.nutritionItem}>
+                          <Text style={styles.nutritionValue}>{format1(totalCal)}</Text>
+                          <Text style={styles.nutritionUnit}>kcal</Text>
+                        </View>
+                        <View style={styles.nutritionItem}>
+                          <Text style={styles.nutritionValue}>{format1(totalP)}</Text>
+                          <Text style={styles.nutritionUnit}>P</Text>
+                        </View>
+                        <View style={styles.nutritionItem}>
+                          <Text style={styles.nutritionValue}>{format1(totalF)}</Text>
+                          <Text style={styles.nutritionUnit}>F</Text>
+                        </View>
+                        <View style={styles.nutritionItem}>
+                          <Text style={styles.nutritionValue}>{format1(totalC)}</Text>
+                          <Text style={styles.nutritionUnit}>C</Text>
+                        </View>
+                      </View>
 
-                  {/* Calories (total) */}
-                  <ThemedText style={styles.itemLine}>
-                    Calories: {format1(totalCal)} kcal
-                  </ThemedText>
-
-                  {/* Macros (totals) */}
-                  <ThemedText style={styles.itemLine}>
-                    Macros:
-                    {` P ${format1(totalP)}g`}
-                    {` F ${format1(totalF)}g`}
-                    {` C ${format1(totalC)}g`}
-                  </ThemedText>
-
-                  {/* Timestamp */}
-                  {item.createdAt && (
-                    <ThemedText style={styles.time}>
-                      {new Date(item.createdAt).toLocaleTimeString()}
-                    </ThemedText>
-                  )}
-                </View>
-              </TouchableOpacity>
-            );
-          }}
-        />
-      )}
-    </ThemedView>
+                      {/* Timestamp */}
+                      {item.createdAt && (
+                        <View style={styles.timeRow}>
+                          <IconSymbol name="clock" size={12} color="#95a99c" />
+                          <Text style={styles.timeText}>
+                            {new Date(item.createdAt).toLocaleTimeString()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </>
+        )}
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
@@ -363,56 +309,245 @@ export default function TodayLogScreen() {
 // Styles
 // ====================================================
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16 },
+  container: {
+    flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    padding: 16,
+  },
 
-  title: { marginBottom: 8 },
+  // Header Card
+  headerCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 16,
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
 
+  // Date navigation
   dateRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 12,
     gap: 16,
   },
   dateButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-  },
-  dateButtonText: {
-    fontSize: 20,
-  },
-  dateButtonDisabled: {
-    opacity: 0.3,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: '#f0f0f0',
   },
   dateLabel: {
     fontSize: 16,
     fontWeight: "600",
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    flex: 1,
+    textAlign: 'center',
   },
 
+  // Summary Card
   summaryCard: {
-    padding: 12,
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 18,
+    marginBottom: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
     marginBottom: 16,
-    borderRadius: 8,
-    backgroundColor: "#f3f7ff",
-    borderWidth: 1,
-    borderColor: "#dde6ff",
   },
-  summaryTitle: { marginBottom: 4 },
-  summaryLine: { fontSize: 14 },
-
-  empty: { fontSize: 14, color: "#666", marginTop: 8 },
-
-  item: {
-    paddingVertical: 12,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
+  summaryTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
   },
-  itemTitle: { fontSize: 16 },
-  itemLine: { fontSize: 14 },
-  servingsHint: {
+  macroRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    gap: 8,
+  },
+  macroItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  macroValue: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#2d6a4f',
+    marginTop: 4,
+  },
+  macroLabel: {
+    fontSize: 12,
+    color: '#52796f',
+    marginTop: 2,
+  },
+
+  // Empty state
+  emptyCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 32,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: "#95a99c",
+    marginTop: 12,
+    textAlign: 'center',
+    fontFamily: 'Poppins-Regular',
+  },
+
+  // Section Header (Food Log)
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 16,
+    marginTop: 8,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    flex: 1,
+  },
+  sectionBadge: {
+    backgroundColor: '#40916c',
+    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    minWidth: 28,
+    alignItems: 'center',
+  },
+  sectionBadgeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: 'white',
+  },
+
+  // List
+  listContent: {
+    gap: 12,
+    paddingBottom: 16,
+  },
+
+  // Food Cards
+  foodCard: {
+    backgroundColor: 'white',
+    borderRadius: 16,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  foodHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  foodTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    flex: 1,
+  },
+  foodRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 12,
+  },
+  foodDetail: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  foodDetailText: {
+    fontSize: 14,
+    color: '#52796f',
+    fontFamily: 'Poppins-Regular',
+  },
+  servingsText: {
     fontSize: 13,
-    color: "#666",
-    marginBottom: 2,
+    color: "#95a99c",
+    fontStyle: 'italic',
   },
-  time: { fontSize: 12, color: "#999", marginTop: 4 },
+
+  // Nutrition row
+  nutritionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#e9ffed',
+    gap: 8,
+  },
+  nutritionItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  nutritionValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#2d6a4f',
+    marginTop: 2,
+  },
+  nutritionUnit: {
+    fontSize: 11,
+    color: '#95a99c',
+    marginTop: 2,
+  },
+
+  // Time row
+  timeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 8,
+  },
+  timeText: {
+    fontSize: 12,
+    color: "#95a99c",
+    fontFamily: 'Poppins-Regular',
+  },
 });

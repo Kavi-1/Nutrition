@@ -33,11 +33,16 @@ import {
 import { router } from "expo-router";
 import api from "../services/api";
 import BarcodeScanner from "../../components/BarcodeScanner";
+import { IconSymbol } from '@/components/ui/icon-symbol';
+import { useAppFonts } from '@/utils/fonts';
+import { LinearGradient } from 'expo-linear-gradient';
 
 /**
  * LogScreen Component
  */
 export default function LogScreen() {
+  const [fontsLoaded] = useAppFonts();
+
   // User-entered search text
   const [query, setQuery] = useState("");
 
@@ -54,6 +59,19 @@ export default function LogScreen() {
   const [debug, setDebug] = useState<string | null>(null);
 
   const [scannerVisible, setScannerVisible] = useState(false);
+
+  if (!fontsLoaded) {
+    return (
+      <LinearGradient
+        colors={['#e9ffedff', '#d8f3dcff', '#d8eff3ff']}
+        start={{ x: -1, y: 0.2 }}
+        end={{ x: 0.2, y: 1 }}
+        style={styles.container}
+      >
+        <ActivityIndicator size="large" color="#40916c" />
+      </LinearGradient>
+    );
+  }
 
   // manual search
   const handleSearch = async () => {
@@ -117,67 +135,104 @@ export default function LogScreen() {
     result && Array.isArray(result.foods) ? result.foods : [];
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Search Food</Text>
+    <LinearGradient
+      colors={['#e9ffedff', '#d8f3dcff', '#d8eff3ff']}
+      start={{ x: -1, y: 0.2 }}
+      end={{ x: 1, y: 1 }}
+      style={styles.container}
+    >
+      {/* search Card */}
+      <View style={styles.searchCard}>
+        <Text style={styles.title}>Search Food</Text>
 
-      {/* Search input and button */}
-      <View style={styles.row}>
-        <TextInput
-          style={styles.input}
-          placeholder="Search food by name"
-          value={query}
-          onChangeText={setQuery}
-        />
-        <Button title="Search" onPress={handleSearch} />
+        {/* search */}
+        <View style={styles.searchInputContainer}>
+          <IconSymbol size={20} name="magnifyingglass" color="#95a99c" />
+          <TextInput
+            style={styles.input}
+            placeholder="Search by name..."
+            placeholderTextColor="#95a99c"
+            value={query}
+            onChangeText={setQuery}
+            onSubmitEditing={handleSearch}
+            returnKeyType="search"
+          />
+          {query.length > 0 && (
+            <TouchableOpacity onPress={() => setQuery('')}>
+              <IconSymbol size={20} name="xmark.circle.fill" color="#95a99c" />
+            </TouchableOpacity>
+          )}
+        </View>
+
+        {/* buttons */}
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={styles.searchButton}
+            onPress={handleSearch}
+          >
+            <IconSymbol size={20} name="magnifyingglass" color="#ffffff" />
+            <Text style={styles.searchButtonText}>Search</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={() => setScannerVisible(true)}
+          >
+            <IconSymbol size={20} name="barcode.viewfinder" color="#ffffff" />
+            <Text style={styles.scanButtonText}>Scan</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
-      {/* Barcode scan button */}
-      <TouchableOpacity
-        style={styles.scanButton}
-        onPress={() => setScannerVisible(true)}
-      >
-        <Text style={styles.scanButtonText}>Scan Barcode</Text>
-      </TouchableOpacity>
-
       {/* Loading state */}
-      {loading && <ActivityIndicator style={{ marginTop: 8 }} />}
+      {loading && (
+        <View style={styles.loadingCard}>
+          <ActivityIndicator size="large" color="#40916c" />
+          <Text style={styles.loadingText}>Searching...</Text>
+        </View>
+      )}
 
       {/* Error text (if API failed) */}
       {error && (
-        <Text style={styles.error}>Failed to search food: {error}</Text>
+        <View style={styles.errorCard}>
+          <IconSymbol size={24} name="exclamationmark.triangle.fill" color="#FF3B30" />
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
       )}
-
-      {/* Development debug info */}
-      {debug && <Text style={styles.debug}>Debug: {debug}</Text>}
 
       {/* Food search result list (top 10 results) */}
       {foods.length > 0 && (
         <ScrollView style={styles.resultBox}>
+          <Text style={styles.resultHeader}>
+            Found {foods.length} results
+          </Text>
           {foods.slice(0, 10).map((food) => (
             <TouchableOpacity
               key={food.fdcId ?? food.description}
-              style={styles.item}
+              style={styles.foodCard}
               onPress={() =>
                 router.push({
                   pathname: "/food/add",
-                  params: { data: JSON.stringify(food) }, // Pass full JSON object
+                  params: { data: JSON.stringify(food) },
                 })
               }
             >
-              {/* Food name */}
-              <Text style={styles.itemName}>{food.description}</Text>
+              <View style={styles.foodCardHeader}>
+                <View style={styles.foodCardContent}>
+                  <Text style={styles.itemName}>{food.description}</Text>
 
-              {/* Optional brand name */}
-              {food.brandName && (
-                <Text style={styles.itemBrand}>{food.brandName}</Text>
-              )}
+                  {food.brandName && (
+                    <Text style={styles.itemBrand}>{food.brandName}</Text>
+                  )}
 
-              {/* Optional category */}
-              {food.foodCategory && (
-                <Text style={styles.itemMeta}>
-                  Category: {food.foodCategory}
-                </Text>
-              )}
+                  {food.foodCategory && (
+                    <Text style={styles.itemMeta}>
+                      {food.foodCategory}
+                    </Text>
+                  )}
+                </View>
+                <IconSymbol size={20} name="chevron.right" color="#95a99c" />
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -196,70 +251,179 @@ export default function LogScreen() {
         onClose={() => setScannerVisible(false)}
         onScan={handleBarcodeScan}
       />
-    </View>
+    </LinearGradient>
   );
 }
 
-/**
- * Basic screen styles
- */
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "white" },
-  title: { fontSize: 24, fontWeight: "700", marginBottom: 16 },
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: "#e9ffedff"
+  },
 
-  row: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 12,
+  searchCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 20,
+    marginBottom: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+
+  title: {
+    fontSize: 28,
+    fontWeight: "bold",
+    marginBottom: 16,
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    alignSelf: 'center',
+  },
+
+  searchInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fdf9',
+    borderWidth: 1,
+    borderColor: '#95d5a6',
+    borderRadius: 12,
+    paddingHorizontal: 15,
+    marginBottom: 15,
+    height: 50,
+    gap: 10,
   },
 
   input: {
     flex: 1,
-    borderColor: "#ccc",
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    marginRight: 8,
-    height: 44,
+    fontSize: 16,
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+  },
+
+  buttonRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+
+  searchButton: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#40916c',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+
+  searchButtonText: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    fontFamily: 'Poppins-Regular',
   },
 
   scanButton: {
-    backgroundColor: "#00bb70ff",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginBottom: 12,
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#52796f',
+    padding: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
   },
 
   scanButtonText: {
-    color: "white",
+    color: 'white',
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
+    fontFamily: 'Poppins-Regular',
   },
 
-  error: { color: "red", marginTop: 8 },
-  debug: { color: "#555", marginTop: 4, fontSize: 12 },
+  loadingCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 40,
+    alignItems: 'center',
+    gap: 15,
+  },
 
-  resultBox: { marginTop: 12, maxHeight: 400 },
+  loadingText: {
+    fontSize: 16,
+    color: '#52796f',
+    fontFamily: 'Poppins-Regular',
+  },
 
-  item: {
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderColor: "#eee",
+  errorCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 15,
+  },
+
+  errorText: {
+    flex: 1,
+    color: '#FF3B30',
+    fontSize: 16,
+    fontFamily: 'Poppins-Regular',
+  },
+
+  resultBox: {
+    flex: 1,
+  },
+
+  resultHeader: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#2d6a4f',
+    marginBottom: 15,
+    fontFamily: 'Poppins-Regular',
+  },
+
+  foodCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 15,
+    padding: 16,
+    marginBottom: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 4,
+  },
+
+  foodCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+
+  foodCardContent: {
+    flex: 1,
   },
 
   itemName: {
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: '600',
+    color: '#2d6a4f',
+    fontFamily: 'Poppins-Regular',
+    marginBottom: 4,
   },
 
   itemBrand: {
     fontSize: 14,
-    color: "#666",
+    color: '#52796f',
+    fontFamily: 'Poppins-Regular',
+    marginBottom: 2,
   },
 
   itemMeta: {
     fontSize: 12,
-    color: "#888",
+    color: '#95a99c',
+    fontFamily: 'Poppins-Regular',
   },
 });
