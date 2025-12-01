@@ -18,7 +18,7 @@ public class ImageClassifierService {
         client.setBasePath("https://api.spoonacular.com");
         ApiKeyAuth apiKeyAuth = (ApiKeyAuth) client.getAuthentication("apiKeyScheme");
         apiKeyAuth.setApiKey(apiKey);
-        apiKeyAuth.setApiKeyPrefix("Token");
+        apiKeyAuth.setApiKeyPrefix(null);
         this.api = new MiscApi(client);
     }
 
