@@ -21,5 +21,24 @@ public class FoodItemResponse {
     private Double fat;        // 1004
     private Double fiber;      // 1079
     private Double sodium;     // 1093  <-- NEW
+
+    public Double getCalories() {
+        return calories;
+    }
+    public Double getProtein() {
+        return protein;
+    }
+    public Double getCarbs() {
+        return carbs;
+    }
+    public Double getFat() {
+        return fat;
+    }
+    public Double getFiber() {
+        return fiber;
+    }
+    public Double getSodium() {
+        return sodium;
+    }
 }
 
