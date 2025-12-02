@@ -20,7 +20,7 @@ public class FoodItemResponse {
     private Double carbs;      // 1005
     private Double fat;        // 1004
     private Double fiber;      // 1079
-    private Double sodium;     // 1093  <-- NEW
+    private Double sodium;     // 1093
 
     public Double getCalories() {
         return calories;
