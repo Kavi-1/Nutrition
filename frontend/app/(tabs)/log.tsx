@@ -139,6 +139,22 @@ export default function LogScreen() {
     }
   };
 
+  // function to convert AI respponse to USDA food format
+  const convertAIToUSDA = (ai: FoodAnalysisResult) => ({
+    fdcId: `ai-${Date.now()}`,
+    description: ai.foodName,
+    brandName: 'AI Estimated',
+    servingSize: 1,
+    servingSizeUnit: 'serving',
+    foodNutrients: [
+      { nutrientName: 'Energy', value: ai.calories, unitName: 'KCAL' },
+      { nutrientName: 'Protein', value: ai.proteinGrams, unitName: 'G' },
+      { nutrientName: 'Carbohydrate, by difference', value: ai.carbGrams, unitName: 'G' },
+      { nutrientName: 'Total lipid (fat)', value: ai.fatGrams, unitName: 'G' },
+      { nutrientName: 'Fiber, total dietary', value: ai.fiberGrams, unitName: 'G' }
+    ]
+  });
+
   /**
    * Extract USDA food list from API result.
    *
@@ -285,12 +301,13 @@ export default function LogScreen() {
             </View>
             <TouchableOpacity
               style={styles.photoResultContent}
-              onPress={() =>
+              onPress={() => {
+                const usdaData = convertAIToUSDA(photoAnalysisResult);
                 router.push({
                   pathname: "/food/add",
-                  params: { data: JSON.stringify(photoAnalysisResult) },
-                })
-              }
+                  params: { data: JSON.stringify(usdaData) },
+                });
+              }}
             >
               <Text style={styles.photoFoodName}>{photoAnalysisResult.foodName}</Text>
               <Text style={styles.photoServing}>{photoAnalysisResult.servingDescription}</Text>
