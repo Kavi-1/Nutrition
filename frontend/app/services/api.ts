@@ -39,6 +39,18 @@ export interface HealthProfileUpdateRequest {
     dietaryPreference?: string;
 }
 
+export interface FoodAnalysisResult {
+    foodName: string;
+    servingDescription: string;
+    calories: number;
+    proteinGrams: number;
+    carbGrams: number;
+    fatGrams: number;
+    fiberGrams: number;
+    confidence: number;
+    reasoning: string;
+}
+
 class ApiService {
     private client: AxiosInstance;
 
@@ -104,6 +116,15 @@ class ApiService {
     // barcode lookup 
     async getFoodByBarcode(barcode: string): Promise<any> {
         const res = await this.client.get('/api/nutrition/barcode', { params: { barcode } });
+        return res.data;
+    }
+
+    async analyzeFood(imageUrl: string): Promise<FoodAnalysisResult> {
+        const res = await this.client.post<FoodAnalysisResult>(
+            '/api/classify/analyze',
+            null,
+            { params: { imageUrl } }
+        );
         return res.data;
     }
 }
