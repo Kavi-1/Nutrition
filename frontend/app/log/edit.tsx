@@ -24,18 +24,21 @@ import {
   View,
   Text,
   TextInput,
-  Button,
   StyleSheet,
   ActivityIndicator,
   Alert,
   TouchableOpacity,
+  ScrollView,
 } from "react-native";
 import { useLocalSearchParams, router } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
 
 import {
   type FoodLogEntry,
   updateFoodLogAmountAndNotes,
 } from "../../db/logDb";
+import { IconSymbol } from "@/components/ui/icon-symbol";
+import { useAppFonts } from "@/utils/fonts";
 
 // Helper: format number cleanly for UI
 function format1(n: number): string {
@@ -46,13 +49,16 @@ function format1(n: number): string {
 type Mode = "SERVINGS" | "UNIT";
 
 export default function EditLogScreen() {
+  const [fontsLoaded] = useAppFonts();
+
   // Receive the full FoodLogEntry object as JSON from navigation
   const params = useLocalSearchParams();
   const rawData = Array.isArray(params.data) ? params.data[0] : params.data;
 
   const [entry, setEntry] = useState<FoodLogEntry | null>(null);
 
-  // amountMlOrG always stores the "true amount eaten" in ml/g
+  // amountMlOrG always stores the "true amount eaten" in ml/g (or "servings" if we
+  // don't know the servingSize, for legacy entries).
   const [amountMlOrG, setAmountMlOrG] = useState<number>(0);
 
   const [mode, setMode] = useState<Mode>("SERVINGS");
@@ -85,16 +91,15 @@ export default function EditLogScreen() {
       const safeAmt = Number.isFinite(amt) && amt > 0 ? amt : 0;
       setAmountMlOrG(safeAmt);
 
-      // Prefer "servings" mode when servingSize is available
       const refSize = parsed.servingSize;
       if (refSize && refSize > 0) {
+        const initialServings = safeAmt > 0 ? safeAmt / refSize : 1;
         setMode("SERVINGS");
-        const serv = safeAmt > 0 ? safeAmt / refSize : 1;
-        setAmountInput(format1(serv));
+        setAmountInput(format1(initialServings));
       } else {
-        // No servingSize = fallback to editing in ml/g mode
-        setMode("UNIT");
-        setAmountInput(safeAmt > 0 ? format1(safeAmt) : "");
+        // No servingSize => we only know "servings" count
+        setMode("SERVINGS");
+        setAmountInput(format1(safeAmt || 1));
       }
 
       setNotes(parsed.notes ?? "");
@@ -131,15 +136,21 @@ export default function EditLogScreen() {
   // ============================================
   const switchMode = (newMode: Mode) => {
     if (!entry) return;
-    if (newMode === mode) return;
 
+    const hasServingInfo = !!entry.servingSize && !!entry.servingUnit;
+    if (newMode === "UNIT" && !hasServingInfo) {
+      // If we don't know servingSize, we can't meaningfully edit by g/ml
+      return;
+    }
+
+    if (newMode === mode) return;
     setMode(newMode);
 
     if (newMode === "SERVINGS") {
-      const serv = servingsFromAmount(amountMlOrG);
-      setAmountInput(format1(serv));
+      const s = servingsFromAmount(amountMlOrG);
+      setAmountInput(format1(s || 1));
     } else {
-      setAmountInput(format1(amountMlOrG));
+      setAmountInput(format1(amountMlOrG || 1));
     }
   };
 
@@ -150,7 +161,7 @@ export default function EditLogScreen() {
   const handleAmountChange = (text: string) => {
     setAmountInput(text);
 
-    const n = Number(text);
+    const n = Number(text.replace(",", "."));
     if (!Number.isFinite(n) || n <= 0) {
       // Do not update internal amount if invalid input
       return;
@@ -172,33 +183,28 @@ export default function EditLogScreen() {
       return;
     }
 
-    const n = Number(amountInput.trim());
+    const n = Number(amountInput.trim().replace(",", "."));
     if (!Number.isFinite(n) || n <= 0) {
-      Alert.alert(
-        "Invalid amount",
-        mode === "SERVINGS"
-          ? "Servings must be a positive number."
-          : "Amount must be a positive number."
-      );
+      Alert.alert("Invalid amount", "Please enter a valid amount.");
       return;
     }
 
-    // Convert back to ml/g consistently
-    const finalAmount =
-      mode === "SERVINGS" ? amountFromServings(n) : n;
-
-    if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
-      Alert.alert("Invalid amount", "Amount must be greater than 0.");
+    const newAmount = mode === "SERVINGS" ? amountFromServings(n) : n;
+    if (!Number.isFinite(newAmount) || newAmount <= 0) {
+      Alert.alert("Invalid amount", "Calculated amount is invalid.");
       return;
     }
 
     try {
-      updateFoodLogAmountAndNotes(
-        entry.id,
-        String(finalAmount),
-        notes.trim() || undefined
-      );
-      router.back(); // Today Log screen auto-refreshes on focus
+      updateFoodLogAmountAndNotes(entry.id, String(newAmount), notes.trim());
+      Alert.alert("Saved", "Log entry updated.", [
+        {
+          text: "OK",
+          onPress: () => {
+            router.back(); // Today Log screen auto-refreshes on focus
+          },
+        },
+      ]);
     } catch (e: any) {
       console.error(e);
       Alert.alert("Error", e?.message ?? "Failed to update log entry.");
@@ -206,111 +212,194 @@ export default function EditLogScreen() {
   };
 
   // ============================================
-  // Render
+  // Loading / fonts not ready states
   // ============================================
-  if (loading) {
+  if (!fontsLoaded || loading) {
     return (
-      <View style={styles.container}>
-        <ActivityIndicator />
-      </View>
+      <LinearGradient
+        colors={["#e9ffedff", "#d8f3dcff", "#d8eff3ff"]}
+        start={{ x: -1, y: 0.2 }}
+        end={{ x: 0.2, y: 1 }}
+        style={styles.container}
+      >
+        <View style={styles.centerInner}>
+          <ActivityIndicator size="large" color="#40916c" />
+        </View>
+      </LinearGradient>
     );
   }
 
   if (!entry) {
     return (
-      <View style={styles.container}>
-        <Text>Log entry not found.</Text>
-      </View>
+      <LinearGradient
+        colors={["#e9ffedff", "#d8f3dcff", "#d8eff3ff"]}
+        start={{ x: -1, y: 0.2 }}
+        end={{ x: 0.2, y: 1 }}
+        style={styles.container}
+      >
+        <View style={styles.centerInner}>
+          <Text style={styles.errorTitle}>Log entry not found</Text>
+          <Text style={styles.errorText}>
+            We couldn&apos;t load this food entry. Please go back and try again.
+          </Text>
+          <TouchableOpacity
+            style={styles.primaryButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.primaryButtonText}>Back</Text>
+          </TouchableOpacity>
+        </View>
+      </LinearGradient>
     );
   }
 
   const refSize = entry.servingSize;
   const refUnit = entry.servingUnit;
+  const hasServingInfo = !!refSize && !!refUnit;
 
   const refLine =
     refSize && refUnit
       ? `Reference: ${format1(refSize)} ${refUnit} ≈ 1 serving`
       : undefined;
 
+  // We also show a small summary of current total amount
+  const currentServings = servingsFromAmount(amountMlOrG);
+
   return (
-    <View style={styles.container}>
-      {/* Food name */}
-      <Text style={styles.label}>Food</Text>
-      <Text style={styles.value}>{entry.description}</Text>
-
-      {/* Choice: edit by servings or by ml/g */}
-      <Text style={[styles.label, { marginTop: 16 }]}>
-        How much did you eat?
-      </Text>
-      <View style={styles.toggleRow}>
+    <LinearGradient
+      colors={["#e9ffedff", "#d8f3dcff", "#d8eff3ff"]}
+      start={{ x: -1, y: 0.2 }}
+      end={{ x: 0.2, y: 1 }}
+      style={styles.container}
+    >
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={styles.inner}
+        keyboardShouldPersistTaps="handled"
+      >
+        {/* Back row */}
         <TouchableOpacity
-          style={[
-            styles.toggleButton,
-            mode === "SERVINGS" && styles.toggleButtonActive,
-          ]}
-          onPress={() => switchMode("SERVINGS")}
+          style={styles.backRow}
+          onPress={() => router.back()}
         >
-          <Text
-            style={[
-              styles.toggleText,
-              mode === "SERVINGS" && styles.toggleTextActive,
-            ]}
-          >
-            By servings
-          </Text>
+          <IconSymbol
+            name="chevron.left"
+            size={20}
+            color="#1b4332"
+            style={{ marginRight: 4 }}
+          />
+          <Text style={styles.backText}>Back to log</Text>
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.toggleButton,
-            mode === "UNIT" && styles.toggleButtonActive,
-          ]}
-          onPress={() => switchMode("UNIT")}
-        >
-          <Text
-            style={[
-              styles.toggleText,
-              mode === "UNIT" && styles.toggleTextActive,
-            ]}
-          >
-            {refUnit === "ml" ? "By ml" : "By g"}
+        {/* Header */}
+        <Text style={styles.title}>{entry.description}</Text>
+        <Text style={styles.subtitle}>
+          Edit how much you ate and optional notes.
+        </Text>
+
+        {/* Current summary card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Current entry</Text>
+          <Text style={styles.summaryText}>
+            {format1(currentServings || 1)} serving
+            {currentServings && currentServings !== 1 ? "s" : ""}
           </Text>
-        </TouchableOpacity>
-      </View>
+          {refLine && <Text style={styles.hint}>{refLine}</Text>}
+        </View>
 
-      {/* Amount Input */}
-      <Text style={styles.label}>
-        {mode === "SERVINGS"
-          ? "Servings"
-          : refUnit === "ml"
-          ? "ml"
-          : "g"}
-      </Text>
-      <TextInput
-        style={styles.input}
-        value={amountInput}
-        onChangeText={handleAmountChange}
-        keyboardType="numeric"
-        placeholder={mode === "SERVINGS" ? "e.g. 2" : "e.g. 250"}
-      />
-      {refLine && <Text style={styles.hint}>{refLine}</Text>}
+        {/* Edit amount card */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>How much did you eat?</Text>
 
-      {/* Notes */}
-      <Text style={[styles.label, { marginTop: 16 }]}>
-        Notes (optional)
-      </Text>
-      <TextInput
-        style={[styles.input, styles.notesInput]}
-        value={notes}
-        onChangeText={setNotes}
-        placeholder="e.g. breakfast, with milk"
-        multiline
-      />
+          {/* Toggle row */}
+          <View style={styles.toggleRow}>
+            <TouchableOpacity
+              style={[
+                styles.toggleButton,
+                mode === "SERVINGS" && styles.toggleButtonActive,
+              ]}
+              onPress={() => switchMode("SERVINGS")}
+            >
+              <Text
+                style={[
+                  styles.toggleText,
+                  mode === "SERVINGS" && styles.toggleTextActive,
+                ]}
+              >
+                By servings
+              </Text>
+            </TouchableOpacity>
 
-      <View style={styles.buttonWrapper}>
-        <Button title="Save" onPress={handleSave} />
-      </View>
-    </View>
+            <TouchableOpacity
+              disabled={!hasServingInfo}
+              style={[
+                styles.toggleButton,
+                mode === "UNIT" && styles.toggleButtonActive,
+                !hasServingInfo && styles.toggleButtonDisabled,
+              ]}
+              onPress={() => switchMode("UNIT")}
+            >
+              <Text
+                style={[
+                  styles.toggleText,
+                  mode === "UNIT" && styles.toggleTextActive,
+                  !hasServingInfo && styles.toggleTextDisabled,
+                ]}
+              >
+                {refUnit === "ml" ? "By ml" : "By g"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Amount input */}
+          <TextInput
+            style={styles.input}
+            value={amountInput}
+            onChangeText={handleAmountChange}
+            keyboardType="numeric"
+            placeholder={
+              mode === "SERVINGS"
+                ? "e.g. 2"
+                : refUnit === "ml"
+                ? "e.g. 250"
+                : "e.g. 100"
+            }
+            placeholderTextColor="#95a99c"
+          />
+
+          {refLine && (
+            <Text style={[styles.hint, { marginTop: 4 }]}>{refLine}</Text>
+          )}
+
+          {!hasServingInfo && (
+            <Text style={[styles.hint, { marginTop: 6 }]}>
+              This item doesn&apos;t include gram/ml info in the database, so you
+              can only adjust it by servings.
+            </Text>
+          )}
+        </View>
+
+        {/* Notes */}
+        <View style={styles.card}>
+          <Text style={styles.sectionTitle}>Notes (optional)</Text>
+          <TextInput
+            style={[styles.input, styles.notesInput]}
+            value={notes}
+            onChangeText={setNotes}
+            placeholder="e.g. breakfast, with milk"
+            placeholderTextColor="#95a99c"
+            multiline
+          />
+        </View>
+
+        {/* Save button */}
+        <View style={styles.buttonWrapper}>
+          <TouchableOpacity style={styles.primaryButton} onPress={handleSave}>
+            <Text style={styles.primaryButtonText}>Save changes</Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </LinearGradient>
   );
 }
 
@@ -318,48 +407,129 @@ export default function EditLogScreen() {
 // Styles
 // ============================================
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 16, backgroundColor: "white" },
+  container: {
+    flex: 1,
+  },
 
-  label: {
-    fontSize: 14,
-    fontWeight: "600",
-    marginTop: 12,
+  inner: {
+    paddingHorizontal: 18,
+    paddingTop: 32,
+    paddingBottom: 40,
+    gap: 16,
+  },
+
+  centerInner: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 4,
   },
 
-  value: {
+  backText: {
+    fontFamily: "Poppins-Regular",
+    fontSize: 14,
+    color: "#1b4332",
+  },
+
+  title: {
+    fontSize: 22,
+    fontFamily: "Poppins-Bold",
+    color: "#1b4332",
+    marginBottom: 2,
+  },
+
+  subtitle: {
+    fontSize: 13,
+    fontFamily: "Poppins-Regular",
+    color: "#52796f",
+    marginBottom: 8,
+  },
+
+  card: {
+    marginTop: 8,
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#b7e4c7",
+  },
+
+  sectionTitle: {
+    fontFamily: "Poppins-Bold",
     fontSize: 16,
+    color: "#1b4332",
     marginBottom: 4,
+  },
+
+  summaryText: {
+    fontFamily: "Poppins-SemiBold",
+    fontSize: 16,
+    color: "#1b4332",
+  },
+
+  hint: {
+    fontFamily: "Poppins-Regular",
+    fontSize: 12,
+    color: "#52796f",
+    marginTop: 4,
   },
 
   toggleRow: {
     flexDirection: "row",
+    borderRadius: 999,
+    padding: 2,
+    backgroundColor: "#f1faee",
     marginTop: 8,
-    marginBottom: 12,
-    borderRadius: 8,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#ddd",
+    marginBottom: 10,
   },
+
   toggleButton: {
     flex: 1,
+    borderRadius: 999,
     paddingVertical: 8,
     alignItems: "center",
-    backgroundColor: "#f5f5f5",
+    justifyContent: "center",
   },
+
   toggleButtonActive: {
-    backgroundColor: "#007AFF",
+    backgroundColor: "#1b4332",
   },
-  toggleText: { fontSize: 14, color: "#333" },
-  toggleTextActive: { color: "white", fontWeight: "600" },
+
+  toggleButtonDisabled: {
+    opacity: 0.4,
+  },
+
+  toggleText: {
+    fontSize: 14,
+    fontFamily: "Poppins-Regular",
+    color: "#2d6a4f",
+  },
+
+  toggleTextActive: {
+    color: "white",
+    fontFamily: "Poppins-Bold",
+  },
+
+  toggleTextDisabled: {
+    color: "#95a99c",
+  },
 
   input: {
     borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
+    borderColor: "#b7e4c7",
+    borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 8,
     fontSize: 16,
+    fontFamily: "Poppins-Regular",
+    color: "#1b4332",
+    backgroundColor: "#ffffff",
+    marginTop: 6,
   },
 
   notesInput: {
@@ -367,9 +537,36 @@ const styles = StyleSheet.create({
     textAlignVertical: "top",
   },
 
-  hint: { fontSize: 12, color: "#777", marginTop: 4 },
-
   buttonWrapper: {
-    marginTop: 24,
+    marginTop: 20,
+  },
+
+  primaryButton: {
+    backgroundColor: "#1b4332",
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  primaryButtonText: {
+    color: "white",
+    fontFamily: "Poppins-Bold",
+    fontSize: 16,
+  },
+
+  errorTitle: {
+    fontFamily: "Poppins-Bold",
+    fontSize: 18,
+    color: "#c1121f",
+    marginBottom: 4,
+  },
+
+  errorText: {
+    fontFamily: "Poppins-Regular",
+    fontSize: 14,
+    color: "#7f1d1d",
+    textAlign: "center",
+    marginBottom: 12,
   },
 });
