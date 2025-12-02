@@ -7,16 +7,14 @@
 //   - change optional "notes"
 //
 // DB conventions (must match Add screen):
-//   amount      = total ml / g eaten
-//   servingSize = reference serving size (ml / g)
-//   servingUnit = "ml" | "g"
+//   amount      = total ml / g eaten OR servings count (legacy)
+//   servingSize = reference serving size (ml / g) when known
+//   servingUnit = "ml" | "g" when known
 //   calories/... = per reference serving (NOT total)
 //
-// Navigation to this screen:
-//   router.push({
-//     pathname: "/log/edit",
-//     params: { data: JSON.stringify(entry) },
-//   });
+// For legacy entries where servingSize is 1 g / 1 ml and the
+// original data did not have real weight info, we treat them
+// as "servings-only": no By-g editing.
 // ====================================================
 
 import React, { useEffect, useState } from "react";
@@ -51,14 +49,12 @@ type Mode = "SERVINGS" | "UNIT";
 export default function EditLogScreen() {
   const [fontsLoaded] = useAppFonts();
 
-  // Receive the full FoodLogEntry object as JSON from navigation
   const params = useLocalSearchParams();
   const rawData = Array.isArray(params.data) ? params.data[0] : params.data;
 
   const [entry, setEntry] = useState<FoodLogEntry | null>(null);
 
-  // amountMlOrG always stores the "true amount eaten" in ml/g (or "servings" if we
-  // don't know the servingSize, for legacy entries).
+  // amountMlOrG: “真实的量”——要么是 ml/g，要么（旧记录）就是“份数”
   const [amountMlOrG, setAmountMlOrG] = useState<number>(0);
 
   const [mode, setMode] = useState<Mode>("SERVINGS");
@@ -92,12 +88,23 @@ export default function EditLogScreen() {
       setAmountMlOrG(safeAmt);
 
       const refSize = parsed.servingSize;
-      if (refSize && refSize > 0) {
-        const initialServings = safeAmt > 0 ? safeAmt / refSize : 1;
+      const refUnit = parsed.servingUnit;
+
+      // ⚠️ 这里是关键：
+      // 只有在“有真实克/毫升信息”时才按 weight 处理。
+      // 经验规则：servingSize > 1 且有 unit（g/ml） 才视为有重量信息。
+      const hasRealServingInfo =
+        typeof refSize === "number" &&
+        refSize > 1 &&
+        typeof refUnit === "string" &&
+        refUnit !== "serving";
+
+      if (hasRealServingInfo) {
+        const initialServings = safeAmt > 0 ? safeAmt / refSize! : 1;
         setMode("SERVINGS");
         setAmountInput(format1(initialServings));
       } else {
-        // No servingSize => we only know "servings" count
+        // 旧记录：只知道“份数”
         setMode("SERVINGS");
         setAmountInput(format1(safeAmt || 1));
       }
@@ -120,26 +127,51 @@ export default function EditLogScreen() {
   // Conversions between servings <-> ml/g
   // ============================================
   const servingsFromAmount = (amt: number): number => {
-    if (!entry?.servingSize || entry.servingSize <= 0) return amt;
-    return amt / entry.servingSize;
+    if (!entry) return amt;
+    const sz = entry.servingSize;
+    const unit = entry.servingUnit;
+
+    const hasRealServingInfo =
+      typeof sz === "number" &&
+      sz > 1 &&
+      typeof unit === "string" &&
+      unit !== "serving";
+
+    if (!hasRealServingInfo) return amt; // legacy: amount 本身就是 servings
+    return amt / sz!;
   };
 
   const amountFromServings = (serv: number): number => {
-    if (!entry?.servingSize || entry.servingSize <= 0) return serv;
-    return serv * entry.servingSize;
+    if (!entry) return serv;
+    const sz = entry.servingSize;
+    const unit = entry.servingUnit;
+
+    const hasRealServingInfo =
+      typeof sz === "number" &&
+      sz > 1 &&
+      typeof unit === "string" &&
+      unit !== "serving";
+
+    if (!hasRealServingInfo) return serv; // legacy: amount = servings
+    return serv * sz!;
   };
 
   // ============================================
   // Switch UI mode (servings <-> ml/g)
-  // Does NOT modify the underlying amountMlOrG value.
-  // Only updates what is shown in the input box.
   // ============================================
   const switchMode = (newMode: Mode) => {
     if (!entry) return;
 
-    const hasServingInfo = !!entry.servingSize && !!entry.servingUnit;
-    if (newMode === "UNIT" && !hasServingInfo) {
-      // If we don't know servingSize, we can't meaningfully edit by g/ml
+    const sz = entry.servingSize;
+    const unit = entry.servingUnit;
+    const hasRealServingInfo =
+      typeof sz === "number" &&
+      sz > 1 &&
+      typeof unit === "string" &&
+      unit !== "serving";
+
+    if (newMode === "UNIT" && !hasRealServingInfo) {
+      // 没有真实重量信息时，不允许切到 By g/ml
       return;
     }
 
@@ -156,16 +188,12 @@ export default function EditLogScreen() {
 
   // ============================================
   // User edits the amount input box
-  // Convert input -> internal ml/g based on mode
   // ============================================
   const handleAmountChange = (text: string) => {
     setAmountInput(text);
 
     const n = Number(text.replace(",", "."));
-    if (!Number.isFinite(n) || n <= 0) {
-      // Do not update internal amount if invalid input
-      return;
-    }
+    if (!Number.isFinite(n) || n <= 0) return;
 
     if (mode === "SERVINGS") {
       setAmountMlOrG(amountFromServings(n));
@@ -201,7 +229,7 @@ export default function EditLogScreen() {
         {
           text: "OK",
           onPress: () => {
-            router.back(); // Today Log screen auto-refreshes on focus
+            router.back();
           },
         },
       ]);
@@ -255,14 +283,17 @@ export default function EditLogScreen() {
 
   const refSize = entry.servingSize;
   const refUnit = entry.servingUnit;
-  const hasServingInfo = !!refSize && !!refUnit;
 
-  const refLine =
-    refSize && refUnit
-      ? `Reference: ${format1(refSize)} ${refUnit} ≈ 1 serving`
-      : undefined;
+  const hasRealServingInfo =
+    typeof refSize === "number" &&
+    refSize > 1 &&
+    typeof refUnit === "string" &&
+    refUnit !== "serving";
 
-  // We also show a small summary of current total amount
+  const refLine = hasRealServingInfo
+    ? `Reference: ${format1(refSize!)} ${refUnit} ≈ 1 serving`
+    : `Reference: 1 serving`;
+
   const currentServings = servingsFromAmount(amountMlOrG);
 
   return (
@@ -304,7 +335,7 @@ export default function EditLogScreen() {
             {format1(currentServings || 1)} serving
             {currentServings && currentServings !== 1 ? "s" : ""}
           </Text>
-          {refLine && <Text style={styles.hint}>{refLine}</Text>}
+          <Text style={styles.hint}>{refLine}</Text>
         </View>
 
         {/* Edit amount card */}
@@ -331,11 +362,11 @@ export default function EditLogScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
-              disabled={!hasServingInfo}
+              disabled={!hasRealServingInfo}
               style={[
                 styles.toggleButton,
                 mode === "UNIT" && styles.toggleButtonActive,
-                !hasServingInfo && styles.toggleButtonDisabled,
+                !hasRealServingInfo && styles.toggleButtonDisabled,
               ]}
               onPress={() => switchMode("UNIT")}
             >
@@ -343,7 +374,7 @@ export default function EditLogScreen() {
                 style={[
                   styles.toggleText,
                   mode === "UNIT" && styles.toggleTextActive,
-                  !hasServingInfo && styles.toggleTextDisabled,
+                  !hasRealServingInfo && styles.toggleTextDisabled,
                 ]}
               >
                 {refUnit === "ml" ? "By ml" : "By g"}
@@ -367,13 +398,11 @@ export default function EditLogScreen() {
             placeholderTextColor="#95a99c"
           />
 
-          {refLine && (
-            <Text style={[styles.hint, { marginTop: 4 }]}>{refLine}</Text>
-          )}
+          <Text style={[styles.hint, { marginTop: 4 }]}>{refLine}</Text>
 
-          {!hasServingInfo && (
+          {!hasRealServingInfo && (
             <Text style={[styles.hint, { marginTop: 6 }]}>
-              This item doesn&apos;t include gram/ml info in the database, so you
+              This entry doesn&apos;t include gram/ml info in the database, so you
               can only adjust it by servings.
             </Text>
           )}
