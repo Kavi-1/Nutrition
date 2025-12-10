@@ -38,7 +38,6 @@ class FoodAnalysisServiceScoreTest {
         return f;
     }
 
-    /** Utility: ensures score is valid numeric value */
     private void assertValidScore(double score) {
         assertFalse(Double.isNaN(score));
         assertFalse(Double.isInfinite(score));
@@ -48,6 +47,21 @@ class FoodAnalysisServiceScoreTest {
     void calculateFoodScore_loseWeight() {
         double score = service.calculateFoodScore(
                 sampleItem(), profileMale(), HealthGoal.LOSE_WEIGHT);
+        assertValidScore(score);
+    }
+
+    @Test
+    void calculateFoodScore_femaleProfile_executesFemaleTDEEBranch() {
+        HealthProfile female = new HealthProfile();
+        female.setAge(25);
+        female.setHeight(165.0);
+        female.setWeight(60.0);
+        female.setGender("FEMALE");
+
+        double score = service.calculateFoodScore(
+                sampleItem(), female, HealthGoal.MAINTAIN_HEALTH
+        );
+
         assertValidScore(score);
     }
 

@@ -9,11 +9,9 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.context.TestConfiguration;
-import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.web.client.RestTemplate;
 
@@ -32,13 +30,12 @@ class BarcodeIntegrationTest {
     @Autowired
     private MockMvc mockMvc;
 
-    @Autowired
+    @MockitoBean
     private RestTemplate restTemplate; // mocked from config
 
     @Test
     void barcodeLookup_returnsItem() throws Exception {
 
-        // ---------- create fake nutrient data ----------
         FoodNutrient cal = new FoodNutrient();
         cal.setNutrientId(1008);
         cal.setValue(120.0);
@@ -51,7 +48,6 @@ class BarcodeIntegrationTest {
         sodium.setNutrientId(1093);
         sodium.setValue(340.0);
 
-        // ---------- build fake USDA food item ----------
         FoodSearchItem item = new FoodSearchItem();
         item.setDescription("Greek Yogurt");
         item.setBrandOwner("Chobani");
@@ -63,11 +59,9 @@ class BarcodeIntegrationTest {
         FoodSearchResponse response = new FoodSearchResponse();
         response.setFoods(List.of(item));
 
-        // ---------- mock the HTTP call inside RestTemplate ----------
         when(restTemplate.getForObject(anyString(), Mockito.eq(FoodSearchResponse.class)))
                 .thenReturn(response);
 
-        // ---------- call the real controller endpoint ----------
         mockMvc.perform(get("/api/nutrition/barcode")
                         .param("barcode", "12345")
                         .contentType(MediaType.APPLICATION_JSON))
@@ -85,7 +79,6 @@ class BarcodeIntegrationTest {
     @Test
     void barcodeLookup_notFound_returns404() throws Exception {
 
-        // USDA returns empty foods list
         FoodSearchResponse response = new FoodSearchResponse();
         response.setFoods(List.of());
 
@@ -96,18 +89,5 @@ class BarcodeIntegrationTest {
                         .param("barcode", "99999"))
                 .andExpect(status().isNotFound())
                 .andExpect(content().string("Food item not found"));
-    }
-
-    // --------------------------------------------------
-    // Test config: override RestTemplate with a mock bean
-    // --------------------------------------------------
-    @TestConfiguration
-    static class MockConfig {
-
-        @Bean
-        @Primary
-        public RestTemplate restTemplate() {
-            return Mockito.mock(RestTemplate.class);
-        }
     }
 }

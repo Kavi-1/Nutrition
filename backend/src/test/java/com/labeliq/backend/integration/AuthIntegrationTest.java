@@ -42,7 +42,6 @@ class AuthIntegrationTest {
 
     @Test
     void login_returnsJwt() throws Exception {
-        // First register the user
         RegisterRequest req = new RegisterRequest();
         req.setUsername("john");
         req.setPassword("pass123");
@@ -53,7 +52,6 @@ class AuthIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)));
 
-        // Now login
         LoginRequest login = new LoginRequest();
         login.setUsername("john");
         login.setPassword("pass123");
@@ -67,7 +65,6 @@ class AuthIntegrationTest {
 
     @Test
     void login_wrongPassword_fails() throws Exception {
-        // Register
         RegisterRequest req = new RegisterRequest();
         req.setUsername("john");
         req.setPassword("pass123");
@@ -76,7 +73,6 @@ class AuthIntegrationTest {
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(mapper.writeValueAsString(req)));
 
-        // Wrong password login attempt
         LoginRequest badLogin = new LoginRequest();
         badLogin.setUsername("john");
         badLogin.setPassword("WRONG");

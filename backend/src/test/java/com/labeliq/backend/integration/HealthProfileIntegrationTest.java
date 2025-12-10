@@ -40,15 +40,13 @@ class HealthProfileIntegrationTest {
         profileRepo.deleteAll();
         userRepo.deleteAll();
 
-        // Create & save test user
         user = new User();
         user.setUsername("john");
-        user.setPassword("encodedpass");   // doesn't matter for tests
+        user.setPassword("encodedpass");   
         user.setFirstName("John");
         user.setLastName("Doe");
         user = userRepo.save(user);
 
-        // Seed profile for the user
         HealthProfile profile = new HealthProfile();
         profile.setUser(user);
         profile.setAge(20);
